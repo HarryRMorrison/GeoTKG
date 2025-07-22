@@ -1,4 +1,4 @@
-from datasets import Dataset, DatasetDict
+from datasets import Dataset, DatasetDict, load_dataset, concatenate_datasets
 import xml.etree.ElementTree as ET
 import os
 import spacy
@@ -22,8 +22,12 @@ class Reader:
             raise ValueError(f"Path {self.path} is neither a file nor a directory.")
         return filepaths
     
-    def to_json(self, data : Dataset, intended_path : str):
-        data.to_json(intended_path)
+    def to_json(data : Dataset, intended_path : str):
+        try:
+            data.to_json(intended_path)
+        except AttributeError:
+            with open(intended_path, 'w') as f:
+                json.dump(data, f, indent=4)
 
     def convert_to_dataset(data, label_map):
         formatted_data = {"tokens":[], "ner_tags":[]}
@@ -34,8 +38,8 @@ class Reader:
 
     def get_label_list(data, label2id=True, id2label=True):
         label_list = sorted(list(set([tag for sentence in data for tag in sentence['ner_tags']])))
-        label2id = {label: i for i, label in enumerate(label_list)}
-        id2label = {i: label for label, i in label2id.items()}
+        label2id = {label: int(i) for i, label in enumerate(label_list)}
+        id2label = {int(i): label for label, i in label2id.items()}
         return label_list, label2id, id2label
  
 
@@ -67,7 +71,10 @@ class TimeMLReader(Reader):
         datasets = TimeMLReader.convert_to_dataset(data, label2id)
 
         if json_path:
-            self.to_json(datasets, json_path)
+            TimeMLReader.to_json(datasets, json_path)
+            TimeMLReader.to_json(label_list, "cleandata\\TempEval3\\label_list.json")
+            TimeMLReader.to_json(label2id, "cleandata\\TempEval3\\label2id.json")
+            TimeMLReader.to_json(id2label, "cleandata\\TempEval3\\id2label.json")
 
         if return_data:
             return datasets, label_list, label2id, id2label
@@ -141,6 +148,8 @@ class OzRockReader(Reader):
         
 
         for filepath in self.file_paths_to_read:
+            if filepath == self.file_paths_to_read[1]:
+                print("Processing file 1/2")
             with open(filepath, 'r') as file:
                 lines = file.readlines()
                 data, sentence = [], {"tokens": [], "ner_tags": []}
@@ -150,6 +159,7 @@ class OzRockReader(Reader):
                     except ValueError:
                         data.append(sentence)
                         sentence = {"tokens": [], "ner_tags": []}
+                        continue
                     if word == "" or tag == "":
                         data.append(sentence)
                         sentence = {"tokens": [], "ner_tags": []}
@@ -161,22 +171,39 @@ class OzRockReader(Reader):
                     label_list, label2id, id2label = OzRockReader.get_label_list(data, label2id=True, id2label=True)
                     train = OzRockReader.convert_to_dataset(data, label2id)
                 else:
-                    test = OzRockReader.convert_to_dataset(test, label2id)
+                    test = OzRockReader.convert_to_dataset(data, label2id)
 
         if train_json:
-            OzRockReader.to_json(train, train_json)
-            OzRockReader.to_json(test, test_json)
+            OzRockReader.to_json(data=train, intended_path=train_json)
+            OzRockReader.to_json(data=test, intended_path=test_json)
         if return_data:
             datasets = DatasetDict({
-                "train": OzRockReader.convert_to_dataset(train, label2id),
-                "eval": OzRockReader.convert_to_dataset(test, label2id)
+                "train": train,
+                "eval": test
             })
             return datasets, label_list, label2id, id2label
         else:
             return
 
+def obtain_dataset(dataset_name, datasets_filenames : list):
+    data = load_dataset("json", data_files = f"cleandata/{dataset_name}/{datasets_filenames[0]}.json")["train"]
+    for dataset_filename in datasets_filenames[1:]:
+        more_data = load_dataset("json", data_files = f"cleandata/{dataset_name}/{dataset_filename}.json")["train"]
+        data = concatenate_datasets([data, more_data])
+    data = data.shuffle(seed=42)
+    return data.train_test_split(test_size=0.2, seed=42)
     
+    
+def obtain_label_list(dataset_name):
+    if dataset_name not in ["OzRock", "TempEval3"]:
+        raise ValueError("Dataset name is not valid.")
+    with open(f"cleandata/{dataset_name}/label_list.json", 'r') as f:
+        label_list = json.load(f)
+    with open(f"cleandata/{dataset_name}/label2id.json", 'r') as f:
+        label2id = json.load(f)
+    with open(f"cleandata/{dataset_name}/id2label.json", 'r') as f:
+        id2label = json.load(f)
+    return label_list, label2id, id2label
 
 if __name__ == "__main__":
-    s0 = TimeMLReader("rawdata\\TempEval3\\Training\\TE3-Silver-data-0-copy")
-    s0.read(method="timex3_bio_tagger", json_path="data.json")
+    obtain_dataset("TempEval3", ["silver-0", "silver-1", "platinum"])

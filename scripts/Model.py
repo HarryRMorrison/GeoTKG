@@ -77,15 +77,25 @@ class Model:
         return tokenized_datasets
     
     def evaluate(self, tokenized_testset):
-        return  self.trainer.evaluate(tokenized_testset["eval"])
+        return  self.trainer.evaluate(tokenized_testset["test"])
 
+    def predict(self, tokenized_testset):
+        output = self.trainer.predict(tokenized_testset)
+        logits = output.predictions         # shape: (batch_size, seq_len, num_labels)
+        pred_label_ids = np.argmax(logits, axis=-1)
+        return pred_label_ids
     
+    def print_classification_report(self, true_labels, pred_labels_ids, id2label):
+        true_labels_str = [[id2label[str(id)] for id in seq if id != -100] for seq in true_labels]
+        pred_labels_str = [[id2label[str(id)] for id, true_id in zip(seq, true_seq) if true_id != -100] for seq, true_seq in zip(pred_labels_ids, true_labels)]
+        print(classification_report(true_labels_str, pred_labels_str))
+
     def train(self, tokenized_datasets):
         trainer = Trainer(
             model=self.model,
             args=self.training_args,
             train_dataset=tokenized_datasets["train"],
-            eval_dataset=tokenized_datasets["eval"],
+            eval_dataset=tokenized_datasets["test"],
             compute_metrics=self.compute_metrics,
             data_collator=self.data_collator,
             tokenizer=self.tokenizer

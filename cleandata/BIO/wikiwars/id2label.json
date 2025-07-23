@@ -1,0 +1,11 @@
+{
+    "0": "B-DATE",
+    "1": "B-DURATION",
+    "2": "B-SET",
+    "3": "B-TIME",
+    "4": "I-DATE",
+    "5": "I-DURATION",
+    "6": "I-SET",
+    "7": "I-TIME",
+    "8": "O"
+}

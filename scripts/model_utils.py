@@ -68,8 +68,3 @@ class Utils:
         tokenized_datasets = datasets.map(self.tokenize_and_align_labels, batched=True)
         return tokenized_datasets
         
-    def print_classification_report(self, true_labels, pred_labels_ids):
-        true_labels_str = [[self.label_list[id] for id in seq if id != -100] for seq in true_labels]
-        pred_labels_str = [[self.label_list[id] for id, true_id in zip(seq, true_seq) if true_id != -100] for seq, true_seq in zip(pred_labels_ids, true_labels)]
-        print(classification_report(true_labels_str, pred_labels_str))
-        

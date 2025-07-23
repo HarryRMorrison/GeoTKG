@@ -224,12 +224,12 @@ def splitter(data, test_size):
 # Could change later to make exact train, test, eval json files
 def obtain_dataset(dataset_name):
     if dataset_name == "TempEval3":
-        data = concatenate_datasets([load_dataset("json", data_files = f"cleandata/{dataset_name}/silver-O-less.json")["train"], load_dataset("json", data_files = f"cleandata/{dataset_name}/gold-O-less.json")["train"]])
+        data = concatenate_datasets([load_dataset("json", data_files = f"cleandata/{dataset_name}/silver.json")["train"], load_dataset("json", data_files = f"cleandata/{dataset_name}/gold.json")["train"]])
         data = data.shuffle(seed=42)
         train_val = data.train_test_split(test_size=0.1, seed=42)
         return DatasetDict({
             "train": train_val["train"],
-            "test": load_dataset("json", data_files = f"cleandata/{dataset_name}/platinum-O-less.json")["train"],
+            "test": load_dataset("json", data_files = f"cleandata/{dataset_name}/platinum.json")["train"],
             "eval": train_val["test"]
         })
     else:

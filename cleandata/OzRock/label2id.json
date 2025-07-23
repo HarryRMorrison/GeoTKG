@@ -1,0 +1,15 @@
+{
+    "B-LOCATION": 0,
+    "B-MINERAL": 1,
+    "B-ORE_DEPOSIT": 2,
+    "B-ROCK": 3,
+    "B-STRAT": 4,
+    "B-TIMESCALE": 5,
+    "I-LOCATION": 6,
+    "I-MINERAL": 7,
+    "I-ORE_DEPOSIT": 8,
+    "I-ROCK": 9,
+    "I-STRAT": 10,
+    "I-TIMESCALE": 11,
+    "O": 12
+}

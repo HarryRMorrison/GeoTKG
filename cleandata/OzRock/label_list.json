@@ -1,0 +1,15 @@
+[
+    "B-LOCATION",
+    "B-MINERAL",
+    "B-ORE_DEPOSIT",
+    "B-ROCK",
+    "B-STRAT",
+    "B-TIMESCALE",
+    "I-LOCATION",
+    "I-MINERAL",
+    "I-ORE_DEPOSIT",
+    "I-ROCK",
+    "I-STRAT",
+    "I-TIMESCALE",
+    "O"
+]

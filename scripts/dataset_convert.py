@@ -1,17 +1,21 @@
 from Reader import TimeMLReader, OzRockReader
+import os.path as path
 
-rawdata_path = "rawdata\\TempEval3\\"
-cleandata_path = "cleandata\\TempEval3\\"
+rawdata_path = path.join("rawdata", "TempEval3")
+cleandata_path = path.join("cleandata", "TempEval3")
 
-# s1 = TimeMLReader(rawdata_path+"Training\\TE3-Silver-data-1")
-# s1.read(method="timex3_bio_tagger", json_path=cleandata_path+"silver-1.json", return_data=False)
+silver = TimeMLReader(path.join(rawdata_path,"Training"))
+silver.read(method="timex3_bio_tagger", json_path=path.join(cleandata_path,"silver-O-less.json"))
 
-# pl = TimeMLReader(rawdata_path+"Evaluation\\te3-platinum")
-# pl.read(method="timex3_bio_tagger", json_path=cleandata_path+"platinum.json", return_data=False)
+platinum = TimeMLReader(path.join(rawdata_path,"Evaluation","te3-platinum-normalized"))
+platinum.read(method="timex3_bio_tagger", json_path=path.join(cleandata_path,"platinum-O-less.json"))
 
-s0 = TimeMLReader(rawdata_path+"Training\\TE3-Silver-data-0")
-s0.read(method="timex3_bio_tagger", json_path=cleandata_path+"silver-0.json", return_data=False)
+gold = TimeMLReader(path.join(rawdata_path,"Gold"))
+gold.read(method="timex3_bio_tagger", json_path=path.join(cleandata_path,"gold-O-less.json"))
 
-pln = TimeMLReader(rawdata_path+"Evaluation\\te3-platinum-normalized")
-pln.read(method="timex3_bio_tagger", json_path=cleandata_path+"platinum-normalized.json", return_data=False)
+# rawdata_path = path.join("rawdata", "OzRock")
+# cleandata_path = path.join("cleandata", "OzRock")
+
+# ozrock_train = OzRockReader(rawdata_path)
+# ozrock_train.read(path.join(cleandata_path, "train.json"), path.join(cleandata_path, "eval.json"))
 

@@ -2,6 +2,7 @@ from datasets import Dataset, DatasetDict, load_dataset, concatenate_datasets
 import xml.etree.ElementTree as ET
 import os
 import spacy
+from spacy.symbols import ORTH
 import json
 
 class Reader:
@@ -59,6 +60,8 @@ class TimeMLReader(Reader):
 
         if method == "timex3_bio_tagger":
             extractor = TimeMLReader.TIMEX3_BIO_tagger
+        elif method == "tlink_event_time":
+            extractor = TimeMLReader.TLINK_seqencer
         else:
             raise ValueError(f"Method {method} is not supported.")
         
@@ -93,7 +96,7 @@ class TimeMLReader(Reader):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
-
+        
         DCT = root.find('DCT').find('TIMEX3').get('value')
 
         nlp = spacy.load("en_core_web_sm")
@@ -148,23 +151,82 @@ class TimeMLReader(Reader):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
+        #title = root.find('TITLE')
+        dct = root.find('DCT').find('TIMEX3')
+        tlinks = root.findall('TLINK[@relatedToTime]')
 
         nlp = spacy.load("en_core_web_sm")
         nlp.add_pipe("sentencizer")
+        sep = "[SEP]"
 
-        data, sentence = [], {"tokens": [], "ner_tags": []}
+        article = ["Document", "creation", "date", "is"]
+        locs = {}
+        dist = {}
+        order = []
+        sent_ends = {}
+
+        #article.extend(nlp(title.text.replace("\n\n"," ").lstrip()))
+
+        dct_tokens = nlp(dct.text.replace("\n\n"," ").lstrip())
+        locs[dct.attrib["tid"]] = len(article)
+        dist[dct.attrib["tid"]] = len(dct_tokens)
+        article.extend(dct_tokens)
+        article.append(".")
+        order.append(dct.attrib["tid"])
+
 
         for node in text.iter():
-            continue
-        return
-    
-    @staticmethod
-    def map_entity_to_event(text, events):
-        nlp = spacy.load("en_core_web_sm")
-        doc = nlp(text)
+            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
+            if node.tag == "EVENT":
+                locs[node.attrib["eid"]] = len(article)
+                dist[node.attrib["eid"]] = len(tokens)
+                order.append(node.attrib["eid"])
+            elif node.tag == "TIMEX3":
+                locs[node.attrib["tid"]] = len(article)
+                dist[node.attrib["tid"]] = len(tokens)
+                order.append(node.attrib["tid"])
+            article.extend(tokens)
+            if node.tail:
+                tail_tokens = nlp(node.tail.replace("\n\n"," ").lstrip())
 
-        for token in doc:
-            print(token)
+                # Checks if the sentence has ended
+                if len(list(tail_tokens.sents)) > 1:
+                    sentences = list(tail_tokens.sents)
+                    if sentences[0][-1] == [".", "!", "?"]:
+                        try:
+                            sent_ends[node.attrib["tid"]] = len(article) + len(sentences[0])
+                        except KeyError:
+                            sent_ends[node.attrib["eid"]] = len(article) + len(sentences[0])
+
+                article.extend(tail_tokens)
+
+        article = [str(token) for token in article]
+        data = []
+
+        for tlink in tlinks:
+            t_id = tlink.attrib["relatedToTime"].replace('i','')
+            try:
+                e_id = tlink.attrib["eventInstanceID"].replace('i','')
+            except:
+                continue
+            relType = tlink.attrib["relType"]
+
+            para = article.copy()
+
+            if order.index(t_id) > order.index(e_id):
+                para.insert(locs[e_id], sep)
+                para.insert(locs[e_id]+dist[e_id]+1, sep)
+                para.insert(locs[t_id]+2, sep)
+                para.insert(locs[t_id]+dist[t_id]+3, sep)
+            else:
+                para.insert(locs[t_id], sep)
+                para.insert(locs[t_id]+dist[t_id]+1, sep)
+                para.insert(locs[e_id]+2, sep)
+                para.insert(locs[e_id]+dist[e_id]+3, sep)                 
+
+            data.append({'tokens':para, 'ner_tags':[relType]})
+                            
+        return data
     
 class OzRockReader(Reader):
     def __init__(self, path: str):
@@ -251,39 +313,45 @@ def obtain_label_list(dataset_name):
     return label_list, label2id, id2label
 
 if __name__ == "__main__":
-    tree = ET.parse("rawdata\\TempEval3\\Evaluation\\te3-platinum\\AP_20130322.tml")
-    root = tree.getroot()
-    text = root.find('TEXT')
-    events = text.findall('EVENT')
-    nlp = spacy.load("en_core_web_sm")
+    # tree = ET.parse("rawdata\\TempEval3\\Evaluation\\te3-platinum\\AP_20130322.tml")
+    # root = tree.getroot()
+    # text = root.find('TEXT')
+    # events = text.findall('EVENT')
+    # nlp = spacy.load("en_core_web_sm")
 
-    article = []    
-    token_hot_encode = []
+    # article = []    
+    # token_hot_encode = []
 
-    for node in text.iter():
-        if isinstance(node.tag, str):
-            if node.tag == "EVENT":
-                token_hot_encode.append(len(article))
-            article.extend(nlp(node.text.replace("\n\n"," ").lstrip()))
-        if node.tail:
-            article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+    # for node in text.iter():
+    #     if isinstance(node.tag, str):
+    #         if node.tag == "EVENT":
+    #             token_hot_encode.append(len(article))
+    #         article.extend(nlp(node.text.replace("\n\n"," ").lstrip()))
+    #     if node.tail:
+    #         article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
 
-    article = [str(token) for token in article]
-    doc = nlp(" ".join(article))
+    # article = [str(token) for token in article]
+    # doc = nlp(" ".join(article))
     
-    for i, token in enumerate(doc):
-        if i in token_hot_encode:
-            for child in token.children:
-                if child.ent_type_ not in ["DATE", "TIME"]:
-                    print(f"Entity associated with {token}: {child.text}")
+    # for i, token in enumerate(doc):
+    #     if i in token_hot_encode:
+    #         for child in token.children:
+    #             if child.ent_type_ not in ["DATE", "TIME"]:
+    #                 print(f"Entity associated with {token}: {child.text}")
 
-    for index in token_hot_encode:
-        event = doc[index]
-        closest_ent = min(doc.ents, key=lambda ent: abs(ent.start - index))
-        print(f"Closest entity to {event}: {closest_ent}")
+    # for index in token_hot_encode:
+    #     event = doc[index]
+    #     closest_ent = min(doc.ents, key=lambda ent: abs(ent.start - index))
+    #     print(f"Closest entity to {event}: {closest_ent}")
 
+    nlp = spacy.load("en_core_web_sm")
+    nlp.add_pipe("sentencizer")
+    test = TimeMLReader.TLINK_seqencer(".\\scripts\\AP_20130322.tml")
+    print(max([len(list(nlp(" ".join(test[i]['tokens'])))) for i in range(len(test))]))
 
 
 
 
     #TimeMLReader.map_entity_to_event(pp, events)
+
+    

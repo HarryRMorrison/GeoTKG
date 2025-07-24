@@ -4,6 +4,10 @@ import os
 import spacy
 from spacy.symbols import ORTH
 import json
+import numpy as np
+
+RAWDATA_PATH = os.path.join("rawdata")
+CLEANDATA_PATH = os.path.join("cleandata")
 
 class Reader:
     def __init__(self, path : str):
@@ -38,11 +42,11 @@ class Reader:
             with open(intended_path, 'w') as f:
                 json.dump(data, f, indent=4)
 
-    def convert_to_dataset(data, label_map):
+    def convert_to_dataset(data):
         formatted_data = {"tokens":[], "ner_tags":[]}
         for sentence in data:
             formatted_data["tokens"].append([str(token) for token in sentence["tokens"]])
-            formatted_data["ner_tags"].append([label_map[tag] for tag in sentence["ner_tags"]])
+            formatted_data["ner_tags"].append([tag for tag in sentence["ner_tags"]])
         return Dataset.from_dict(formatted_data)
 
     def get_label_list(data, label2id=True, id2label=True):
@@ -50,45 +54,50 @@ class Reader:
         label2id = {label: int(i) for i, label in enumerate(label_list)}
         id2label = {int(i): label for label, i in label2id.items()}
         return label_list, label2id, id2label
- 
 
 class TimeMLReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
 
-    def read(self, method : str, json_path: str = None):
+    def read(self, method : str, json_name: str = None):
 
         if method == "timex3_bio_tagger":
             extractor = TimeMLReader.TIMEX3_BIO_tagger
+            file_loc = "BIO"
         elif method == "tlink_event_time":
             extractor = TimeMLReader.TLINK_seqencer
+            file_loc = "Relations"
         else:
             raise ValueError(f"Method {method} is not supported.")
         
-        if not json_path.endswith('.json'):
+        if not json_name.endswith('.json'):
             raise ValueError("JSON path must end with .json")
         
-        if os.path.exists(json_path):
-            os.remove(json_path)
+        json_name = os.path.join(CLEANDATA_PATH, file_loc, "TempEval3", json_name)
+
+        if os.path.exists(json_name):
+            os.remove(json_name)
 
         data = []
         indicator = 0
         num_file = len(self.file_paths_to_read)
-        label_list, label2id, id2label = obtain_label_list("TempEval3")
 
         for filepath in self.file_paths_to_read:
+
             if filepath.endswith('.tml'):
                 print(f"Processing file {indicator+1}/{num_file}")
-                data.extend(extractor(filepath = filepath))
+                data.extend(extractor(filepath))
                 indicator += 1
+
             if indicator % 200 == 0:
-                datasets = TimeMLReader.convert_to_dataset(data, label2id)
-                TimeMLReader.to_json(datasets, json_path)
+                datasets = TimeMLReader.convert_to_dataset(data)
+                TimeMLReader.to_json(datasets, json_name)
                 data = []
                 datasets = None
+
         if len(data)!=0:
-            datasets = TimeMLReader.convert_to_dataset(data, label2id)
-            TimeMLReader.to_json(datasets, json_path)
+            datasets = TimeMLReader.convert_to_dataset(data)
+            TimeMLReader.to_json(datasets, json_name)
         return
 
     @staticmethod
@@ -151,19 +160,19 @@ class TimeMLReader(Reader):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
-        #title = root.find('TITLE')
         dct = root.find('DCT').find('TIMEX3')
         tlinks = root.findall('TLINK[@relatedToTime]')
 
         nlp = spacy.load("en_core_web_sm")
-        nlp.add_pipe("sentencizer")
         sep = "[SEP]"
+        special_case = [{ORTH: sep}]
+        nlp.tokenizer.add_special_case(sep, special_case)
+        nlp.add_pipe("sentencizer")
 
         article = ["Document", "creation", "date", "is"]
         locs = {}
         dist = {}
         order = []
-        sent_ends = {}
 
         #article.extend(nlp(title.text.replace("\n\n"," ").lstrip()))
 
@@ -187,18 +196,7 @@ class TimeMLReader(Reader):
                 order.append(node.attrib["tid"])
             article.extend(tokens)
             if node.tail:
-                tail_tokens = nlp(node.tail.replace("\n\n"," ").lstrip())
-
-                # Checks if the sentence has ended
-                if len(list(tail_tokens.sents)) > 1:
-                    sentences = list(tail_tokens.sents)
-                    if sentences[0][-1] == [".", "!", "?"]:
-                        try:
-                            sent_ends[node.attrib["tid"]] = len(article) + len(sentences[0])
-                        except KeyError:
-                            sent_ends[node.attrib["eid"]] = len(article) + len(sentences[0])
-
-                article.extend(tail_tokens)
+                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
 
         article = [str(token) for token in article]
         data = []
@@ -212,19 +210,40 @@ class TimeMLReader(Reader):
             relType = tlink.attrib["relType"]
 
             para = article.copy()
+            try:
+                ordering = order.index(t_id) > order.index(e_id)
+            # Labeling error 'e1000036' in file 5 and so on
+            except ValueError:
+                e_id = "e"+e_id[2:].replace("0","")
 
-            if order.index(t_id) > order.index(e_id):
-                para.insert(locs[e_id], sep)
-                para.insert(locs[e_id]+dist[e_id]+1, sep)
-                para.insert(locs[t_id]+2, sep)
-                para.insert(locs[t_id]+dist[t_id]+3, sep)
-            else:
-                para.insert(locs[t_id], sep)
-                para.insert(locs[t_id]+dist[t_id]+1, sep)
-                para.insert(locs[e_id]+2, sep)
-                para.insert(locs[e_id]+dist[e_id]+3, sep)                 
+            try:
+                if ordering:
+                    para.insert(locs[e_id], sep)
+                    para.insert(locs[e_id]+dist[e_id]+1, sep)
+                    para.insert(locs[t_id]+2, sep)
+                    para.insert(locs[t_id]+dist[t_id]+3, sep)
+                else:
+                    para.insert(locs[t_id], sep)
+                    para.insert(locs[t_id]+dist[t_id]+1, sep)
+                    para.insert(locs[e_id]+2, sep)
+                    para.insert(locs[e_id]+dist[e_id]+3, sep)                 
+            except KeyError:
+                continue
+            para = nlp(" ".join(para))
+            sep_found = 0
+            trimmed = []
 
-            data.append({'tokens':para, 'ner_tags':[relType]})
+            for sent in list(para.sents):
+                sent = [str(token) for token in sent]
+                if sep in sent:
+                    trimmed.extend(sent)
+                    sep_found += sent.count(sep)
+                    if sep_found == 4:
+                        break
+                elif sep_found > 0:
+                    trimmed.extend(sent)
+
+            data.append({'tokens':trimmed, 'ner_tags':[relType]})
                             
         return data
     
@@ -240,9 +259,11 @@ class OzRockReader(Reader):
         if (test_json and not train_json) or (train_json and not test_json):
             raise ValueError("Both train and test JSON paths must be provided or neither.")
         
+        train_json = os.path.join(CLEANDATA_PATH, "BIO", "OzRock", train_json)
+        test_json = os.path.join(CLEANDATA_PATH, "BIO", "OzRock", test_json)
+
         if os.path.exists(train_json):
             os.remove(train_json)
-
         if os.path.exists(test_json):
             os.remove(test_json)
 
@@ -267,91 +288,62 @@ class OzRockReader(Reader):
                         sentence["ner_tags"].append(tag)
                 
                 if filepath == self.file_paths_to_read[0]:
-                    label_list, label2id, id2label = OzRockReader.get_label_list(data, label2id=True, id2label=True)
-                    train = OzRockReader.convert_to_dataset(data, label2id)
+                    train = OzRockReader.convert_to_dataset(data)
                 else:
-                    test = OzRockReader.convert_to_dataset(data, label2id)
+                    test = OzRockReader.convert_to_dataset(data)
 
-        OzRockReader.to_json(label_list, "cleandata/OzRock/label_list.json")
-        OzRockReader.to_json(label2id, "cleandata/OzRock/label2id.json")
-        OzRockReader.to_json(id2label, "cleandata/OzRock/id2label.json")
         OzRockReader.to_json(data=train, intended_path=train_json)
         OzRockReader.to_json(data=test, intended_path=test_json)
         return
 
-def splitter(data, test_size):
-    data = data.train_test_split(test_size=test_size, seed=42)
-    return data["train"], data["test"]
+class MATRESReader(Reader):
+    def __init__(self, path):
+        super().__init__(path)
+
+    def read(self):
+        data = []
+
+        tempeval_files = []
+
+        for quality in ['Evaluation','Gold',"Training"]:
+            tempeval_files.extend(Reader(os.path.join(RAWDATA_PATH, "TempEval3", quality)).get_file_paths)
+
+        tempeval_files = np.array(tempeval_files)
+
+        for file in self.file_paths_to_read:
+            info = np.loadtxt(file)
+            unique_files, indices = np.unique(info[:, 0], return_inverse=True)
+            for timeml_file in unique_files:
+                path = tempeval_files[np.char.find(tempeval_files, timeml_file)]
+
+    @staticmethod
+    def TLINK_event_event_finder(path, eiid1, eiid2):
+
+
+        return
+
 
 # Could change later to make exact train, test, eval json files
-def obtain_dataset(dataset_name):
-    if dataset_name == "TempEval3":
-        data = concatenate_datasets([load_dataset("json", data_files = f"cleandata/{dataset_name}/silver.json")["train"], load_dataset("json", data_files = f"cleandata/{dataset_name}/gold.json")["train"]])
-        data = data.shuffle(seed=42)
-        train_val = data.train_test_split(test_size=0.1, seed=42)
-        return DatasetDict({
-            "train": train_val["train"],
-            "test": load_dataset("json", data_files = f"cleandata/{dataset_name}/platinum.json")["train"],
-            "eval": train_val["test"]
-        })
-    else:
-        return DatasetDict({
-            "train": load_dataset("json", data_files = f"cleandata/OzRock/train.json")["train"],
-            "eval": load_dataset("json", data_files = f"cleandata/OzRock/eval.json")["train"]
-        })
+def obtain_dataset(dataset_name, method):
+    try:
+        test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "test.json"))["train"]
+        train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "train.json"))["train"]
+        val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "eval.json"))["train"]
+    except:
+        raise ValueError("A path does not exist!")
+    train = concatenate_datasets([train, val])
+    val=None
+    train = train.shuffle(seed=42)
+    train = train.train_test_split(test_size=0.1, seed=42)
+    return DatasetDict({
+        "train": train["train"],
+        "test": test,
+        "eval": train["test"]
+    })
     
-    
-def obtain_label_list(dataset_name):
-    if dataset_name not in ["OzRock", "TempEval3"]:
-        raise ValueError("Dataset name is not valid.")
-    with open(f"cleandata/{dataset_name}/label_list.json", 'r') as f:
-        label_list = json.load(f)
-    with open(f"cleandata/{dataset_name}/label2id.json", 'r') as f:
-        label2id = json.load(f)
-    with open(f"cleandata/{dataset_name}/id2label.json", 'r') as f:
-        id2label = json.load(f)
-    return label_list, label2id, id2label
+def obtain_label_list(dataset):
+    return Reader.get_label_list(dataset)
 
 if __name__ == "__main__":
-    # tree = ET.parse("rawdata\\TempEval3\\Evaluation\\te3-platinum\\AP_20130322.tml")
-    # root = tree.getroot()
-    # text = root.find('TEXT')
-    # events = text.findall('EVENT')
-    # nlp = spacy.load("en_core_web_sm")
-
-    # article = []    
-    # token_hot_encode = []
-
-    # for node in text.iter():
-    #     if isinstance(node.tag, str):
-    #         if node.tag == "EVENT":
-    #             token_hot_encode.append(len(article))
-    #         article.extend(nlp(node.text.replace("\n\n"," ").lstrip()))
-    #     if node.tail:
-    #         article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
-
-    # article = [str(token) for token in article]
-    # doc = nlp(" ".join(article))
-    
-    # for i, token in enumerate(doc):
-    #     if i in token_hot_encode:
-    #         for child in token.children:
-    #             if child.ent_type_ not in ["DATE", "TIME"]:
-    #                 print(f"Entity associated with {token}: {child.text}")
-
-    # for index in token_hot_encode:
-    #     event = doc[index]
-    #     closest_ent = min(doc.ents, key=lambda ent: abs(ent.start - index))
-    #     print(f"Closest entity to {event}: {closest_ent}")
-
-    nlp = spacy.load("en_core_web_sm")
-    nlp.add_pipe("sentencizer")
-    test = TimeMLReader.TLINK_seqencer(".\\scripts\\AP_20130322.tml")
-    print(max([len(list(nlp(" ".join(test[i]['tokens'])))) for i in range(len(test))]))
-
-
-
-
-    #TimeMLReader.map_entity_to_event(pp, events)
-
-    
+    test = TimeMLReader("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized")
+    test.read('tlink_event_time', '.\\scripts\\test.json')

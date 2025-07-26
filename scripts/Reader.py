@@ -61,8 +61,8 @@ class TimeMLReader(Reader):
 
     def read(self, method : str, json_name: str = None):
 
-        if method == "timex3_bio_tagger":
-            extractor = TimeMLReader.TIMEX3_BIO_tagger
+        if method == "bio_tagger":
+            extractor = TimeMLReader.BIO_tagger
             file_loc = "BIO"
         elif method == "tlink_event_time":
             extractor = TimeMLReader.TLINK_seqencer
@@ -101,7 +101,7 @@ class TimeMLReader(Reader):
         return
 
     @staticmethod
-    def TIMEX3_BIO_tagger(filepath: str):
+    def BIO_tagger(filepath: str):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
@@ -118,12 +118,17 @@ class TimeMLReader(Reader):
 
             # Checks if the node is a TAG
             if isinstance(node.tag, str):
-                # Check if the node is a TIMEX3
+                # Check if the node is a TIMEX3 or EVENT
                 if node.tag == 'TIMEX3':
-                    # Create BIO tags for TIMEX3
+                    # Create BIO tags for TIMEX
                     for i in range(len(text_tokens)):
                         sentence["ner_tags"].append(f"B-"+node.attrib["type"] if i == 0 else "I-"+node.attrib["type"])
-                # Must be other node
+                # Check if the node is a EVENT
+                elif node.tag =="EVENT":
+                    # Create BIO tags for EVENT
+                    for i in range(len(text_tokens)):
+                        sentence["ner_tags"].append(f"B-EVENT" if i == 0 else "I-EVENT")
+                # Must be another node
                 else:
                     # Creates O tag for other nodes
                     sentence["ner_tags"].extend(["O"] * len(text_tokens))
@@ -144,15 +149,14 @@ class TimeMLReader(Reader):
                     if str(sents[0][-1]) in [".", "!", "?"]:
                         sentence["tokens"].extend(sents[0])
                         sentence["ner_tags"].extend(["O"] * len(sents[0]))
-                        if sentence["ner_tags"].count("O") != len(sentence["ner_tags"]):
-                            data.append(sentence)
+                        data.append(sentence)
                         sentence = {"tokens": [], "ner_tags": []}
                         tail_tokens = sents[1]
 
                 sentence["tokens"].extend(tail_tokens)
                 sentence["ner_tags"].extend(["O"] * len(tail_tokens))
-        if sentence["ner_tags"].count("O") != len(sentence["ner_tags"]):
-            data.append(sentence)
+
+        data.append(sentence)
         return data
     
     @staticmethod
@@ -310,14 +314,18 @@ class MATRESReader(Reader):
 
         tempeval_files = np.array(tempeval_files)
 
+        data = []
+
         for file in self.file_paths_to_read:
             info = np.loadtxt(file)
             unique_files, indices = np.unique(info[:, 0], return_inverse=True)
             for timeml_file in unique_files:
                 path = tempeval_files[np.char.find(tempeval_files, timeml_file)]
+                eiids = info[indices, -3:]
+                data.extend(MATRESReader.TLINK_event_event_finder(path, eiids))
 
     @staticmethod
-    def TLINK_event_event_finder(path, eiid1, eiid2):
+    def TLINK_event_event_finder(path, eiids):
 
 
         return

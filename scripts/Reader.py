@@ -64,9 +64,11 @@ class TimeMLReader(Reader):
         if method == "bio_tagger":
             extractor = TimeMLReader.BIO_tagger
             file_loc = "BIO"
+            json_name = os.path.join(CLEANDATA_PATH, file_loc, "TempEval3", json_name)
         elif method == "tlink_event_time":
             extractor = TimeMLReader.TLINK_seqencer
             file_loc = "Relations"
+            json_name = os.path.join(CLEANDATA_PATH, file_loc, "E-T", "TempEval3", json_name)
         else:
             raise ValueError(f"Method {method} is not supported.")
         
@@ -305,30 +307,111 @@ class MATRESReader(Reader):
         super().__init__(path)
 
     def read(self):
-        data = []
+        json_path = os.path.join(CLEANDATA_PATH, "Relations", "E-E", "MATRES")
 
         tempeval_files = []
 
-        for quality in ['Evaluation','Gold',"Training"]:
-            tempeval_files.extend(Reader(os.path.join(RAWDATA_PATH, "TempEval3", quality)).get_file_paths)
+        for quality in ['Gold',"Training","Evaluation\\te3-platinum"]:
+            tempeval_files.extend(Reader(os.path.join(RAWDATA_PATH, "TempEval3", quality)).file_paths_to_read)
 
         tempeval_files = np.array(tempeval_files)
 
         data = []
 
         for file in self.file_paths_to_read:
-            info = np.loadtxt(file)
+            info = np.loadtxt(file, dtype=str)
             unique_files, indices = np.unique(info[:, 0], return_inverse=True)
             for timeml_file in unique_files:
-                path = tempeval_files[np.char.find(tempeval_files, timeml_file)]
-                eiids = info[indices, -3:]
-                data.extend(MATRESReader.TLINK_event_event_finder(path, eiids))
+                path_mask = np.char.find(tempeval_files, timeml_file) != -1
+                path = tempeval_files[path_mask]
+                eiids = info[info[:,0]==timeml_file, -3:]
+                data.extend(MATRESReader.TLINK_event_event_finder(path[0], eiids))
+        
+        train = TimeMLReader.convert_to_dataset(data).shuffle(seed=42).train_test_split(test_size=0.2, seed=42)
+        test = train["test"]
+        train = train.train_test_split(test_size=0.1, seed=42)
+        trian = train["train"]
+        val = train["eval"]
+        
+        test.to_json(os.path.join(json_path, "test.json"))
+        train.to_json(os.path.join(json_path, "train.json"))
+        val.to_json(os.path.join(json_path, "eval.json"))
+
+
+        
+        return
 
     @staticmethod
     def TLINK_event_event_finder(path, eiids):
+        tree = ET.parse(path)
+        root = tree.getroot()
+        text = root.find('TEXT')
+        dct = root.find('DCT').find('TIMEX3')
 
+        nlp = spacy.load("en_core_web_sm")
+        sep = "[SEP]"
+        special_case = [{ORTH: sep}]
+        nlp.tokenizer.add_special_case(sep, special_case)
+        nlp.add_pipe("sentencizer")
 
-        return
+        article = []
+        locs = {}
+        dist = {}
+        order = []
+
+        for node in text.iter():
+            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
+            if node.tag == "EVENT":
+                locs[node.attrib["eid"]] = len(article)
+                dist[node.attrib["eid"]] = len(tokens)
+                order.append(node.attrib["eid"])
+            article.extend(tokens)
+            if node.tail:
+                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+
+        article = [str(token) for token in article]
+        data = []
+
+        for eiid1, eiid2, relation in eiids:
+            para = article.copy()
+            eiid1 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid1)}"]').attrib["eventID"]
+            eiid2 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid2)}"]').attrib["eventID"]
+            try:
+                ordering = order.index(eiid1) < order.index(eiid2)
+            # Labeling error 'e1000036' in file 5 and so on
+            except ValueError:
+                continue
+
+            try:
+                if ordering:
+                    para.insert(locs[eiid1], sep)
+                    para.insert(locs[eiid1]+dist[eiid1]+1, sep)
+                    para.insert(locs[eiid2]+2, sep)
+                    para.insert(locs[eiid2]+dist[eiid2]+3, sep)
+                else:
+                    para.insert(locs[eiid2], sep)
+                    para.insert(locs[eiid2]+dist[eiid2]+1, sep)
+                    para.insert(locs[eiid1]+2, sep)
+                    para.insert(locs[eiid1]+dist[eiid1]+3, sep)                 
+            except KeyError:
+                continue
+            para = nlp(" ".join(para))
+            sep_found = 0
+            trimmed = []
+
+            for sent in list(para.sents):
+                sent = [str(token) for token in sent]
+                if sep in sent:
+                    trimmed.extend(sent)
+                    sep_found += sent.count(sep)
+                    if sep_found == 4:
+                        break
+                elif sep_found > 0:
+                    trimmed.extend(sent)
+
+            data.append({'tokens':trimmed, 'ner_tags':[relation]})
+            
+        return data
 
 
 # Could change later to make exact train, test, eval json files
@@ -353,5 +436,15 @@ def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
 if __name__ == "__main__":
-    test = TimeMLReader("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized")
-    test.read('tlink_event_time', '.\\scripts\\test.json')
+    # test = [[1,	2,	"AFTER"],
+    #         [2,	5,	"AFTER"],
+    #         [17, 19, "EQUAL"],
+    #         [17, 21, "BEFORE"],
+    #         [19, 21, "BEFORE"],
+    #         [52, 53, "EQUAL"]]
+    # for row in MATRESReader.TLINK_event_event_finder("rawdata\\TempEval3\\Gold\\AQUAINT\\NYT20000406.0002.tml", test):
+    #     print(row)
+    #     print("\n")
+
+    test = MATRESReader("rawdata\\MATRES")
+    test.read()

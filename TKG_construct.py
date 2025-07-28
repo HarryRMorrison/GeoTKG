@@ -42,6 +42,7 @@ with torch.no_grad():
 event_locations = get_event_locations(predictions)
 
 # ---------------------------------------- Event Entity Linking ----------------------------------------
+# Need to update to recognise people and organisations. Can use: SpaCy, EventStoryLine Corpus, RicherEvent Description
 event_entity_linker = EventEntityLinker(example)
 Geo_resolved_text = event_entity_linker.embed_resolved_text(GeoNER, GeoNER_tokenizer)
 EventTimex_resolved_text = event_entity_linker.embed_resolved_text(EventTimexNER, EventTimexNER_tokenizer)

@@ -1,4 +1,4 @@
-from scripts.model_utils import Utils
+from scripts.Utils import Utils
 import torch
 from transformers import RobertaForTokenClassification, RobertaTokenizerFast, TrainingArguments, Trainer
 from scripts.Reader import obtain_dataset, obtain_label_list

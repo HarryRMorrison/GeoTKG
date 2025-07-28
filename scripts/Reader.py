@@ -43,14 +43,14 @@ class Reader:
                 json.dump(data, f, indent=4)
 
     def convert_to_dataset(data):
-        formatted_data = {"tokens":[], "ner_tags":[]}
+        formatted_data = {"tokens":[], "label":[]}
         for sentence in data:
             formatted_data["tokens"].append([str(token) for token in sentence["tokens"]])
-            formatted_data["ner_tags"].append([tag for tag in sentence["ner_tags"]])
+            formatted_data["label"].append([tag for tag in sentence["label"]])
         return Dataset.from_dict(formatted_data)
 
     def get_label_list(data, label2id=True, id2label=True):
-        label_list = sorted(list(set([tag for sentence in data for tag in sentence['ner_tags']])))
+        label_list = sorted(list(set([tag for sentence in data for tag in sentence['label']])))
         label2id = {label: int(i) for i, label in enumerate(label_list)}
         id2label = {int(i): label for label, i in label2id.items()}
         return label_list, label2id, id2label
@@ -59,24 +59,23 @@ class TimeMLReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
 
-    def read(self, method : str, json_name: str = None):
+    def read(self, method : str, dataset : str, json_name: str):
 
         if method == "bio_tagger":
             extractor = TimeMLReader.BIO_tagger
-            file_loc = "BIO"
-            json_name = os.path.join(CLEANDATA_PATH, file_loc, "TempEval3", json_name)
+            json_name = os.path.join(CLEANDATA_PATH, "BIO", dataset, json_name)
         elif method == "tlink_event_time":
-            extractor = TimeMLReader.TLINK_seqencer
-            file_loc = "Relations"
-            json_name = os.path.join(CLEANDATA_PATH, file_loc, "E-T", "TempEval3", json_name)
+            extractor = TimeMLReader.TLINK_ET_seqencer
+            json_name = os.path.join(CLEANDATA_PATH, "E-T", dataset, json_name)
+        elif method == 'tlink_event_event':
+            extractor = TimeMLReader.TLINK_EE_sequencer
+            json_name = os.path.join(CLEANDATA_PATH, "E-E", dataset, json_name)
         else:
             raise ValueError(f"Method {method} is not supported.")
         
         if not json_name.endswith('.json'):
             raise ValueError("JSON path must end with .json")
         
-        json_name = os.path.join(CLEANDATA_PATH, file_loc, "TempEval3", json_name)
-
         if os.path.exists(json_name):
             os.remove(json_name)
 
@@ -113,7 +112,7 @@ class TimeMLReader(Reader):
         nlp = spacy.load("en_core_web_sm")
         nlp.add_pipe("sentencizer")
 
-        data, sentence = [], {"tokens": [], "ner_tags": []}
+        data, sentence = [], {"tokens": [], "label": []}
 
         for node in text.iter():
             text_tokens = nlp(node.text.strip("\n"))
@@ -124,16 +123,16 @@ class TimeMLReader(Reader):
                 if node.tag == 'TIMEX3':
                     # Create BIO tags for TIMEX
                     for i in range(len(text_tokens)):
-                        sentence["ner_tags"].append(f"B-"+node.attrib["type"] if i == 0 else "I-"+node.attrib["type"])
+                        sentence["label"].append(f"B-"+node.attrib["type"] if i == 0 else "I-"+node.attrib["type"])
                 # Check if the node is a EVENT
                 elif node.tag =="EVENT":
                     # Create BIO tags for EVENT
                     for i in range(len(text_tokens)):
-                        sentence["ner_tags"].append(f"B-EVENT" if i == 0 else "I-EVENT")
+                        sentence["label"].append(f"B-EVENT" if i == 0 else "I-EVENT")
                 # Must be another node
                 else:
                     # Creates O tag for other nodes
-                    sentence["ner_tags"].extend(["O"] * len(text_tokens))
+                    sentence["label"].extend(["O"] * len(text_tokens))
                 sentence["tokens"].extend(text_tokens)
             
             # Checks if the node has tail text
@@ -150,29 +149,106 @@ class TimeMLReader(Reader):
                     # Check if the first sentence ends with a sentence ender
                     if str(sents[0][-1]) in [".", "!", "?"]:
                         sentence["tokens"].extend(sents[0])
-                        sentence["ner_tags"].extend(["O"] * len(sents[0]))
+                        sentence["label"].extend(["O"] * len(sents[0]))
                         data.append(sentence)
-                        sentence = {"tokens": [], "ner_tags": []}
+                        sentence = {"tokens": [], "label": []}
                         tail_tokens = sents[1]
 
                 sentence["tokens"].extend(tail_tokens)
-                sentence["ner_tags"].extend(["O"] * len(tail_tokens))
+                sentence["label"].extend(["O"] * len(tail_tokens))
 
         data.append(sentence)
         return data
     
     @staticmethod
-    def TLINK_seqencer(filepath : str):
+    def TLINK_EE_sequencer(filepath: str):
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        text = root.find('TEXT')
+        tlinks = root.findall('TLINK[@relatedToEventInstance][@eventInstanceID]')
+
+        nlp = spacy.load("en_core_web_sm")
+        seps = ["[E1S]","[E1E]","[E2S]","[E2E]"]
+        [nlp.tokenizer.add_special_case(sep, [{ORTH: sep}]) for sep in seps]
+        nlp.add_pipe("sentencizer")
+
+        article = []
+        locs = {}
+        dist = {}
+        order = []
+
+        for node in text.iter():
+            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
+            if node.tag == "EVENT":
+                locs[node.attrib["eid"]] = len(article)
+                dist[node.attrib["eid"]] = len(tokens)
+                order.append(node.attrib["eid"])
+            article.extend(tokens)
+            if node.tail:
+                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+
+        article = [str(token) for token in article]
+        data = []
+
+        for tlink in tlinks:
+            eiid1 = tlink.attrib["eventInstanceID"]
+            eiid2 = tlink.attrib["relatedToEventInstance"]
+
+            para = article.copy()
+            try:
+                eid1 = root.find(f'MAKEINSTANCE[@eiid="{str(eiid1)}"]').attrib["eventID"]
+                eid2 = root.find(f'MAKEINSTANCE[@eiid="{str(eiid2)}"]').attrib["eventID"]
+            except AttributeError:
+                continue
+
+            try:
+                ordering = order.index(eid1) < order.index(eid2)
+            # Labeling error 'e1000036' in file 5 and so on
+            except ValueError:
+                continue
+
+            try:
+                if ordering:
+                    para.insert(locs[eid1], seps[0])
+                    para.insert(locs[eid1]+dist[eid1]+1, seps[1])
+                    para.insert(locs[eid2]+2, seps[2])
+                    para.insert(locs[eid2]+dist[eid2]+3, seps[3])
+                else:
+                    para.insert(locs[eid2], seps[2])
+                    para.insert(locs[eid2]+dist[eid2]+1, seps[3])
+                    para.insert(locs[eid1]+2, seps[0])
+                    para.insert(locs[eid1]+dist[eid1]+3, seps[1])                 
+            except KeyError:
+                continue
+            para = nlp(" ".join(para).strip("\n"))
+            sep_found = 0
+            trimmed = []
+
+            for sent in list(para.sents):
+                sent = [str(token) for token in sent]
+                if any(sep in sent for sep in seps):
+                    trimmed.extend(sent)
+                    sep_found += sum(sent.count(sep) for sep in seps)
+                    if sep_found == 4:
+                        break
+                elif sep_found > 0:
+                    trimmed.extend(sent)
+
+            data.append({'tokens':trimmed, 'label':[tlink.attrib["relType"]]})
+            
+        return data
+
+    @staticmethod
+    def TLINK_ET_seqencer(filepath : str):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
         dct = root.find('DCT').find('TIMEX3')
-        tlinks = root.findall('TLINK[@relatedToTime]')
+        tlinks = root.findall('TLINK[@relatedToTime][@eventInstanceID]')
 
         nlp = spacy.load("en_core_web_sm")
-        sep = "[SEP]"
-        special_case = [{ORTH: sep}]
-        nlp.tokenizer.add_special_case(sep, special_case)
+        seps = ["[ES]","[EE]","[TS]","[TE]"]
+        [nlp.tokenizer.add_special_case(sep, [{ORTH: sep}]) for sep in seps]
         nlp.add_pipe("sentencizer")
 
         article = ["Document", "creation", "date", "is"]
@@ -208,31 +284,32 @@ class TimeMLReader(Reader):
         data = []
 
         for tlink in tlinks:
-            t_id = tlink.attrib["relatedToTime"].replace('i','')
-            try:
-                e_id = tlink.attrib["eventInstanceID"].replace('i','')
-            except:
-                continue
+            t_id = tlink.attrib["relatedToTime"]
+            e_id = tlink.attrib["eventInstanceID"]
+            e_id = root.find(f'MAKEINSTANCE[@eiid="{str(e_id)}"]').attrib["eventID"]
+
             relType = tlink.attrib["relType"]
 
             para = article.copy()
             try:
                 ordering = order.index(t_id) > order.index(e_id)
             # Labeling error 'e1000036' in file 5 and so on
+            # APW19980308.0201 t69 doesnt exist
             except ValueError:
-                e_id = "e"+e_id[2:].replace("0","")
+                print(filepath, t_id, e_id)
+                continue
 
             try:
                 if ordering:
-                    para.insert(locs[e_id], sep)
-                    para.insert(locs[e_id]+dist[e_id]+1, sep)
-                    para.insert(locs[t_id]+2, sep)
-                    para.insert(locs[t_id]+dist[t_id]+3, sep)
+                    para.insert(locs[e_id], seps[0])
+                    para.insert(locs[e_id]+dist[e_id]+1, seps[1])
+                    para.insert(locs[t_id]+2, seps[2])
+                    para.insert(locs[t_id]+dist[t_id]+3, seps[3])
                 else:
-                    para.insert(locs[t_id], sep)
-                    para.insert(locs[t_id]+dist[t_id]+1, sep)
-                    para.insert(locs[e_id]+2, sep)
-                    para.insert(locs[e_id]+dist[e_id]+3, sep)                 
+                    para.insert(locs[t_id], seps[2])
+                    para.insert(locs[t_id]+dist[t_id]+1, seps[3])
+                    para.insert(locs[e_id]+2, seps[0])
+                    para.insert(locs[e_id]+dist[e_id]+3, seps[1])                 
             except KeyError:
                 continue
             para = nlp(" ".join(para))
@@ -241,15 +318,15 @@ class TimeMLReader(Reader):
 
             for sent in list(para.sents):
                 sent = [str(token) for token in sent]
-                if sep in sent:
+                if any(sep in sent for sep in seps):
                     trimmed.extend(sent)
-                    sep_found += sent.count(sep)
+                    sep_found += sum(sent.count(sep) for sep in seps)
                     if sep_found == 4:
                         break
                 elif sep_found > 0:
                     trimmed.extend(sent)
 
-            data.append({'tokens':trimmed, 'ner_tags':[relType]})
+            data.append({'tokens':trimmed, 'label':[relType]})
                             
         return data
     
@@ -278,20 +355,20 @@ class OzRockReader(Reader):
                 print("Processing file 1/2")
             with open(filepath, 'r') as file:
                 lines = file.readlines()
-                data, sentence = [], {"tokens": [], "ner_tags": []}
+                data, sentence = [], {"tokens": [], "label": []}
                 for line in lines[1:]:
                     try:
                         word, tag = line.strip("\n").split(" ")
                     except ValueError:
                         data.append(sentence)
-                        sentence = {"tokens": [], "ner_tags": []}
+                        sentence = {"tokens": [], "label": []}
                         continue
                     if word == "" or tag == "":
                         data.append(sentence)
-                        sentence = {"tokens": [], "ner_tags": []}
+                        sentence = {"tokens": [], "label": []}
                     else:
                         sentence["tokens"].append(word)
-                        sentence["ner_tags"].append(tag)
+                        sentence["label"].append(tag)
                 
                 if filepath == self.file_paths_to_read[0]:
                     train = OzRockReader.convert_to_dataset(data)
@@ -307,7 +384,7 @@ class MATRESReader(Reader):
         super().__init__(path)
 
     def read(self):
-        json_path = os.path.join(CLEANDATA_PATH, "Relations", "E-E", "MATRES")
+        json_path = os.path.join(CLEANDATA_PATH, "E-E", "MATRES")
 
         tempeval_files = []
 
@@ -319,19 +396,25 @@ class MATRESReader(Reader):
         data = []
 
         for file in self.file_paths_to_read:
+            print(file)
             info = np.loadtxt(file, dtype=str)
             unique_files, indices = np.unique(info[:, 0], return_inverse=True)
+            num_files = len(unique_files)
+            indicator = 0
             for timeml_file in unique_files:
+                indicator += 1
+                print(f"Processing file {indicator}/{num_files}")
                 path_mask = np.char.find(tempeval_files, timeml_file) != -1
                 path = tempeval_files[path_mask]
                 eiids = info[info[:,0]==timeml_file, -3:]
                 data.extend(MATRESReader.TLINK_event_event_finder(path[0], eiids))
         
-        train = TimeMLReader.convert_to_dataset(data).shuffle(seed=42).train_test_split(test_size=0.2, seed=42)
-        test = train["test"]
-        train = train.train_test_split(test_size=0.1, seed=42)
-        trian = train["train"]
-        val = train["eval"]
+        data = TimeMLReader.convert_to_dataset(data).shuffle(seed=42).train_test_split(test_size=0.2, seed=42)
+        test = data["test"]
+        train = data["train"].train_test_split(test_size=0.1, seed=42)
+        data=None
+        val = train["test"]
+        train = train["train"]
         
         test.to_json(os.path.join(json_path, "test.json"))
         train.to_json(os.path.join(json_path, "train.json"))
@@ -349,9 +432,8 @@ class MATRESReader(Reader):
         dct = root.find('DCT').find('TIMEX3')
 
         nlp = spacy.load("en_core_web_sm")
-        sep = "[SEP]"
-        special_case = [{ORTH: sep}]
-        nlp.tokenizer.add_special_case(sep, special_case)
+        seps = ["[E1S]","[E1E]","[E2S]","[E2E]"]
+        [nlp.tokenizer.add_special_case(sep, [{ORTH: sep}]) for sep in seps]
         nlp.add_pipe("sentencizer")
 
         article = []
@@ -374,8 +456,12 @@ class MATRESReader(Reader):
 
         for eiid1, eiid2, relation in eiids:
             para = article.copy()
-            eiid1 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid1)}"]').attrib["eventID"]
-            eiid2 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid2)}"]').attrib["eventID"]
+            try:
+                eiid1 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid1)}"]').attrib["eventID"]
+                eiid2 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid2)}"]').attrib["eventID"]
+            except AttributeError:
+                continue
+
             try:
                 ordering = order.index(eiid1) < order.index(eiid2)
             # Labeling error 'e1000036' in file 5 and so on
@@ -384,15 +470,15 @@ class MATRESReader(Reader):
 
             try:
                 if ordering:
-                    para.insert(locs[eiid1], sep)
-                    para.insert(locs[eiid1]+dist[eiid1]+1, sep)
-                    para.insert(locs[eiid2]+2, sep)
-                    para.insert(locs[eiid2]+dist[eiid2]+3, sep)
+                    para.insert(locs[eiid1], seps[0])
+                    para.insert(locs[eiid1]+dist[eiid1]+1, seps[1])
+                    para.insert(locs[eiid2]+2, seps[2])
+                    para.insert(locs[eiid2]+dist[eiid2]+3, seps[3])
                 else:
-                    para.insert(locs[eiid2], sep)
-                    para.insert(locs[eiid2]+dist[eiid2]+1, sep)
-                    para.insert(locs[eiid1]+2, sep)
-                    para.insert(locs[eiid1]+dist[eiid1]+3, sep)                 
+                    para.insert(locs[eiid2], seps[2])
+                    para.insert(locs[eiid2]+dist[eiid2]+1, seps[3])
+                    para.insert(locs[eiid1]+2, seps[0])
+                    para.insert(locs[eiid1]+dist[eiid1]+3, seps[1])                 
             except KeyError:
                 continue
             para = nlp(" ".join(para))
@@ -401,50 +487,51 @@ class MATRESReader(Reader):
 
             for sent in list(para.sents):
                 sent = [str(token) for token in sent]
-                if sep in sent:
+                if any(sep in sent for sep in seps):
                     trimmed.extend(sent)
-                    sep_found += sent.count(sep)
+                    sep_found += sum(sent.count(sep) for sep in seps)
                     if sep_found == 4:
                         break
                 elif sep_found > 0:
                     trimmed.extend(sent)
 
-            data.append({'tokens':trimmed, 'ner_tags':[relation]})
+            data.append({'tokens':trimmed, 'label':[relation]})
             
         return data
 
+def id_token_labels(dataset, label2id):
+    def change_id(row):
+        row["label"][0] = label2id[row["label"][0]]
+        return row
+    return dataset.map(change_id) 
 
 # Could change later to make exact train, test, eval json files
-def obtain_dataset(dataset_name, method):
+def obtain_dataset(dataset_name, method, tlink=None):
     try:
-        test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "test.json"))["train"]
-        train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "train.json"))["train"]
-        val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, dataset_name, method, "eval.json"))["train"]
+        if not tlink:
+            test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
+            train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
+            val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
+        else:
+            test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
+            train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
+            val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
     except:
         raise ValueError("A path does not exist!")
-    train = concatenate_datasets([train, val])
-    val=None
-    train = train.shuffle(seed=42)
-    train = train.train_test_split(test_size=0.1, seed=42)
+    
+    label_list, label2id, id2label = obtain_label_list(train)
     return DatasetDict({
-        "train": train["train"],
-        "test": test,
-        "eval": train["test"]
-    })
+        "train": id_token_labels(train, label2id),
+        "test": id_token_labels(test, label2id),
+        "eval": id_token_labels(val, label2id)
+    }), label_list, label2id, id2label
     
 def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
 if __name__ == "__main__":
-    # test = [[1,	2,	"AFTER"],
-    #         [2,	5,	"AFTER"],
-    #         [17, 19, "EQUAL"],
-    #         [17, 21, "BEFORE"],
-    #         [19, 21, "BEFORE"],
-    #         [52, 53, "EQUAL"]]
-    # for row in MATRESReader.TLINK_event_event_finder("rawdata\\TempEval3\\Gold\\AQUAINT\\NYT20000406.0002.tml", test):
-    #     print(row)
-    #     print("\n")
-
-    test = MATRESReader("rawdata\\MATRES")
-    test.read()
+    data = obtain_dataset("MATRES", "Relations")
+    l, l2, l3 = obtain_label_list(data['train'])
+    print(l)
+    print(l2)
+    print(l3)

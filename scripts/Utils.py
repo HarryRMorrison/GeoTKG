@@ -1,0 +1,94 @@
+import torch
+#from seqeval.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score
+import numpy as np
+
+class Utils:
+    def __init__(self, tokenizer, label_list):
+        self.tokenizer = tokenizer
+        self.label_list = label_list
+    
+    def compute_metrics(self, true_predictions, true_labels):
+        return {
+            "precision": precision_score(true_labels, true_predictions, average="micro"),
+            "recall": recall_score(true_labels, true_predictions, average="micro"),
+            "f1": f1_score(true_labels, true_predictions, average="micro"),
+        }
+    
+    def tokenize_datasets(self, datasets):
+        pass
+
+class NER_Utils(Utils):
+    def __init__(self, tokenizer, label_list):
+        super().__init__(tokenizer, label_list)
+
+    def BIO_tokenize_and_align_labels(self, samples):
+        tokenized_inputs = self.tokenizer(
+            samples["tokens"], truncation=True, is_split_into_words=True, padding=True
+        )
+        labels = []
+        for i, label in enumerate(samples["label"]):
+            word_ids = tokenized_inputs.word_ids(batch_index=i)
+            previous_word_idx = None
+            label_ids = []
+            for word_idx in word_ids:
+                if word_idx is None:
+                    label_ids.append(-100)
+                elif word_idx != previous_word_idx:
+                    print(word_idx)
+                    label_ids.append(label[word_idx])
+                else:
+                    label_ids.append(-100)
+                previous_word_idx = word_idx
+            labels.append(label_ids)
+        tokenized_inputs["labels"] = labels
+        return tokenized_inputs
+
+    def data_collator(self, data):
+        input_ids = [torch.tensor(item["input_ids"]) for item in data]
+        attention_mask = [torch.tensor(item["attention_mask"]) for item in data]
+        labels = [torch.tensor(item["labels"]) for item in data]
+
+        input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+        attention_mask = torch.nn.utils.rnn.pad_sequence(attention_mask, batch_first=True, padding_value=0)
+        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-100)
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": labels,
+        }
+
+    def tokenize_datasets(self, datasets):
+        return datasets.map(self.BIO_tokenize_and_align_labels, batched=True)
+    
+    def compute_metrics(self, eval_prediction):
+        predictions, labels = eval_prediction
+        predictions = np.argmax(predictions, axis=2)
+        # Remove ignored index (special tokens)
+        true_predictions = [
+            [self.label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+        true_labels = [
+            [self.label_list[l] for (p, l) in zip(prediction, label) if l != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+        return super().compute_metrics(true_predictions, true_labels)
+    
+class TempRel_Utils(Utils):
+    def __init__(self, tokenizer, label_list):
+        super().__init__(tokenizer, label_list)
+
+    def tokenize_datasets(self, datasets):
+        return datasets.map(self.TempRel_tokenize, batched=True)
+    
+    def TempRel_tokenize(self, samples):
+        return self.tokenizer(samples["tokens"], truncation=True, is_split_into_words=True, padding=True, return_tensors="pt")
+    
+    def compute_metrics(self, eval_prediction):
+        predictions, labels = eval_prediction
+        predictions = np.argmax(predictions, axis=1)
+        true_labels = [self.label_list[label[0]] for label in labels]
+        true_preds = [self.label_list[pred] for pred in predictions]
+        return super().compute_metrics(true_preds, true_labels)

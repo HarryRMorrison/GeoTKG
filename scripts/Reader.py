@@ -501,30 +501,24 @@ class MATRESReader(Reader):
 
 def id_token_labels(dataset, label2id):
     def change_id(row):
-        row["label"][0] = label2id[row["label"][0]]
+        row["label"] = [label2id[tag] for tag in row["label"]]
         return row
     return dataset.map(change_id) 
 
 # Could change later to make exact train, test, eval json files
-def obtain_dataset(dataset_name, method, tlink=None):
+def obtain_dataset(dataset_name, method):
     try:
-        if not tlink:
-            test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
-            train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
-            val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
-        else:
-            test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
-            train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
-            val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
+        train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
+        label_list, label2id, id2label = obtain_label_list(train)
+        val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
+        dataset = {"train": id_token_labels(train, label2id),"eval": id_token_labels(val, label2id)}
+        train, val = None, None
+        if dataset_name != "OzRock":
+            dataset["test"] = id_token_labels(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"], label2id)
     except:
         raise ValueError("A path does not exist!")
     
-    label_list, label2id, id2label = obtain_label_list(train)
-    return DatasetDict({
-        "train": id_token_labels(train, label2id),
-        "test": id_token_labels(test, label2id),
-        "eval": id_token_labels(val, label2id)
-    }), label_list, label2id, id2label
+    return DatasetDict(dataset), label_list, label2id, id2label
     
 def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)

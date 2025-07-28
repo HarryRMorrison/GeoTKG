@@ -23,10 +23,10 @@ import os.path as path
 # te3_eval_tlink.read(method="tlink_event_time", json_name="eval.json")
 
 ######################### OzRock #########################
-# rawdata_path = path.join("rawdata", "OzRock")
+rawdata_path = path.join("rawdata", "OzRock")
 
-# ozrock_train = OzRockReader(rawdata_path)
-# ozrock_train.read("train.json", "eval.json")
+ozrock_train = OzRockReader(rawdata_path)
+ozrock_train.read("train.json", "eval.json")
 
 ######################### MATRES #########################
 # rawdata_path = path.join("rawdata", "MATRES")
@@ -35,13 +35,13 @@ import os.path as path
 # matres.read()
 
 ######################### TBDense #########################
-rawdata_path = path.join("rawdata", "TBDense")
+# rawdata_path = path.join("rawdata", "TBDense")
 
 # tbdense_et_dev = TimeMLReader(path.join(rawdata_path, "dev"))
 # tbdense_et_dev.read('tlink_event_time', 'TBDense', "eval.json")
 
-tbdense_et_test = TimeMLReader(path.join(rawdata_path, "test"))
-tbdense_et_test.read('tlink_event_event', 'TBDense', "test.json")
+# tbdense_et_test = TimeMLReader(path.join(rawdata_path, "test"))
+# tbdense_et_test.read('tlink_event_event', 'TBDense', "test.json")
 
 # tbdense_et_train = TimeMLReader(path.join(rawdata_path, "train"))
 # tbdense_et_train.read('tlink_event_event', 'TBDense', "train.json")

@@ -1,17 +1,37 @@
-import spacy
-import coreferee
+import requests
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
+from allennlp.predictors.predictor import Predictor
+import allennlp_models.coref
+
+# predictor = Predictor.from_path(
+#     "https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz"
+# )
 
 class EventEntityLinker:
     def __init__(self, text):
-        self.nlp = spacy.load("en_core_web_trf")
-        self.nlp.add_pipe("coreferee")
-        self.resolved_text = self.get_coref_resolved_text(text)
+        self.resolved_text = EventEntityLinker.resolve_coref_allennlp(text)
     
-    def get_coref_resolved_text(self, text):
-        doc = self.nlp(text)
-        return doc._.coref_resolved if doc._.has_coref else text
+    def resolve_coref_allennlp(text):
+        
+        result = predictor.predict(document="John went to the store. He bought milk.")
+
+        tokens = result["document"]
+        clusters = result["clusters"]
+
+        # Build resolved text using clusters
+        resolved_tokens = tokens[:]
+        for cluster in clusters:
+            main_mention = cluster[0]
+            for mention in cluster[1:]:
+                start, end = mention
+                replacement = tokens[main_mention[0]:main_mention[1] + 1]
+                resolved_tokens[start] = " ".join(replacement)
+                for i in range(start + 1, end + 1):
+                    resolved_tokens[i] = ""
+
+        resolved_text = " ".join(t for t in resolved_tokens if t != "")
+        return resolved_text
     
     def get_average_embedding(outputs, token_indices):
         hidden_states = outputs.last_hidden_state.squeeze(0)  # shape: [seq_len, hidden_dim]
@@ -45,3 +65,7 @@ class EventEntityLinker:
         return cosine_similarity(event_embeddings, entity_embeddings)
 
 
+if __name__=="__main__":
+    from transformers import AutoTokenizer, AutoModel
+    AutoTokenizer.from_pretrained("SpanBERT/spanbert-large-cased")
+    AutoModel.from_pretrained("SpanBERT/spanbert-large-cased")

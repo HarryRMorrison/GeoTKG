@@ -1,6 +1,5 @@
 import torch
-from seqeval.metrics import f1_score, precision_score, recall_score
-#from sklearn.metrics import f1_score, precision_score, recall_score
+from seqeval.metrics import f1_score, precision_score, recall_score, classification_report
 import numpy as np
 
 class Utils:
@@ -17,6 +16,32 @@ class Utils:
     
     def tokenize_datasets(self, datasets):
         pass
+
+    def classification_rep(self, predictions, labels, average, encodings):
+        true_labels = []
+        predicted_labels = []
+        encodings.to("cpu")
+        for i in range(len(predictions)):
+            pred_ids = predictions[i].cpu().numpy()
+            label_ids = labels[i]
+
+            # Match only actual tokens (ignore padding)
+            word_ids = encodings.word_ids(batch_index=i)
+            aligned_preds = []
+            aligned_labels = []
+
+            previous_word_idx = None
+            for j, word_idx in enumerate(word_ids):
+                if word_idx is None or word_idx == previous_word_idx:
+                    continue  # skip subwords and special tokens
+                aligned_preds.append(self.label_list[pred_ids[j]])
+                aligned_labels.append(self.label_list[label_ids[word_idx]])
+                previous_word_idx = word_idx
+
+            predicted_labels.append(aligned_preds)
+            true_labels.append(aligned_labels)
+        print(classification_report(true_labels, predicted_labels, average=average))
+        
 
 class NER_Utils(Utils):
     def __init__(self, tokenizer, label_list):
@@ -35,7 +60,6 @@ class NER_Utils(Utils):
                 if word_idx is None:
                     label_ids.append(-100)
                 elif word_idx != previous_word_idx:
-                    print(word_idx)
                     label_ids.append(label[word_idx])
                 else:
                     label_ids.append(-100)

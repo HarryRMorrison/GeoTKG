@@ -1,6 +1,6 @@
 from scripts.Utils import Utils
 import torch
-from transformers import RobertaForTokenClassification, RobertaTokenizerFast, TrainingArguments, Trainer
+from transformers import RobertaForTokenClassification, RobertaTokenizerFast
 from scripts.Reader import obtain_dataset, obtain_label_list
 
 print("CUDA available:", torch.cuda.is_available())

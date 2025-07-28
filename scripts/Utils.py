@@ -1,6 +1,6 @@
 import torch
-#from seqeval.metrics import f1_score, precision_score, recall_score
-from sklearn.metrics import f1_score, precision_score, recall_score
+from seqeval.metrics import f1_score, precision_score, recall_score
+#from sklearn.metrics import f1_score, precision_score, recall_score
 import numpy as np
 
 class Utils:
@@ -89,6 +89,6 @@ class TempRel_Utils(Utils):
     def compute_metrics(self, eval_prediction):
         predictions, labels = eval_prediction
         predictions = np.argmax(predictions, axis=1)
-        true_labels = [self.label_list[label[0]] for label in labels]
-        true_preds = [self.label_list[pred] for pred in predictions]
+        true_labels = [[self.label_list[label[0]]] for label in labels]
+        true_preds = [[self.label_list[pred]] for pred in predictions]
         return super().compute_metrics(true_preds, true_labels)

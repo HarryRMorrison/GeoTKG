@@ -330,6 +330,31 @@ class TimeMLReader(Reader):
                             
         return data
     
+    @staticmethod
+    def TIMEX_value_gen(filepath : str):
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        text = root.find('TEXT')
+        dct = root.find('DCT').find('TIMEX3')
+
+        nlp = spacy.load("en_core_web_sm")
+        nlp.add_pipe("sentencizer")
+
+        article = []
+        values = []
+
+        for node in text.iter():
+            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
+            if node.tag == "TIMEX3":
+                values.append(node.attrib("value"))
+                article.extend(["<timex type="+node.attrib("type")+">"] + tokens + ["</timex>"])
+            else:
+                article.extend(tokens)
+            if node.tail:
+                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+        
+        return article
+
 class OzRockReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
@@ -524,8 +549,4 @@ def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
 if __name__ == "__main__":
-    data = obtain_dataset("MATRES", "Relations")
-    l, l2, l3 = obtain_label_list(data['train'])
-    print(l)
-    print(l2)
-    print(l3)
+    TimeMLReader.TIMEX_value_gen("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized\\bbc_20130322_332.tml")

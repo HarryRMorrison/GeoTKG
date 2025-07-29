@@ -1,4 +1,4 @@
-from EventEntityLinker import EventEntityLinker
+#from EventEntityLinker import EventEntityLinker
 import torch
 from transformers import RobertaForTokenClassification, RobertaTokenizerFast
 
@@ -23,11 +23,9 @@ def get_event_locations(predictions):
     i = 0
     while i < len(predictions[0]):
         if predictions[0][i].item() == 2:  # B-Event
-            print(event_entity_linker.resolved_text[i])
             start = i
             i += 1
             while i < len(predictions) and predictions[i] == 7:  # I-Event
-                print(event_entity_linker.resolved_text[i])
                 i += 1
             locations.append([start, i])  # [start, end) format
         else:
@@ -35,8 +33,7 @@ def get_event_locations(predictions):
     return locations
 
 #example = "The flu season is winding down, and it has killed 105 children so far."
-example = "The Henry River Project began on the south-western limb of the Wanna Syncline."
-event_entity_linker = EventEntityLinker(example)
+example = "The Henry River Project began on the south-western limb of the Wanna Syncline in 2004."
 
 
 print("CUDA available:", torch.cuda.is_available())
@@ -49,7 +46,7 @@ print("Current Device:", torch.cuda.current_device(), torch.cuda.get_device_name
 GeoNER = RobertaForTokenClassification.from_pretrained("results/Geo-NER/model")
 GeoNER_tokenizer = RobertaTokenizerFast.from_pretrained("results/Geo-NER/model")
 
-encodings=GeoNER_tokenizer(event_entity_linker.resolved_text, padding=True, truncation=True, return_tensors="pt")
+encodings=GeoNER_tokenizer(example, padding=True, truncation=True, return_tensors="pt")
 
 with torch.no_grad():
     outputs = GeoNER(**encodings)
@@ -62,7 +59,7 @@ geo_entity_locations = get_geo_entity_locations(predictions)
 EventTimexNER = RobertaForTokenClassification.from_pretrained("results/EventTimex-NER/final_model")
 EventTimexNER_tokenizer = RobertaTokenizerFast.from_pretrained("results/EventTimex-NER/final_model")
 # Bert got a date seq2seq model hugging face, DateBERT
-encodings=EventTimexNER_tokenizer(event_entity_linker.resolved_text, padding=True, truncation=True, return_tensors="pt")
+encodings=EventTimexNER_tokenizer(example, padding=True, truncation=True, return_tensors="pt")
 
 with torch.no_grad():
     outputs = EventTimexNER(**encodings)
@@ -71,12 +68,16 @@ with torch.no_grad():
 
 event_locations = get_event_locations(predictions)
 
+for event in event_locations:
+    print(EventTimexNER_tokenizer.decode(encodings["input_ids"][0][event[0]:event[1]]))
+
 # ---------------------------------------- Event Entity Linking ----------------------------------------
 # Need to update to recognise people and organisations. Can use: SpaCy, EventStoryLine Corpus, RicherEvent Description
-Geo_resolved_outputs = event_entity_linker.embed_resolved_text(GeoNER_tokenizer, GeoNER)
-EventTimex_resolved_outputs = event_entity_linker.embed_resolved_text(EventTimexNER_tokenizer, EventTimexNER)
-EventEntityPairs = event_entity_linker.get_cosine_similarity(event_locations, geo_entity_locations, EventTimex_resolved_outputs, Geo_resolved_outputs)
-print(EventEntityPairs)
+# Geo_resolved_outputs = event_entity_linker.embed_resolved_text(GeoNER_tokenizer, GeoNER)
+# EventTimex_resolved_outputs = event_entity_linker.embed_resolved_text(EventTimexNER_tokenizer, EventTimexNER)
+# EventEntityPairs = event_entity_linker.get_cosine_similarity(event_locations, geo_entity_locations, EventTimex_resolved_outputs, Geo_resolved_outputs)
+# print(EventEntityPairs)
+
 # ---------------------------------------- Timex Normalisation ----------------------------------------
 # Need to do geo timescale normalisation
 # Models: SUTime, ARTime, Masked Language model, QA?, Generative, BART, T5, Llama, Elmo, Mistral

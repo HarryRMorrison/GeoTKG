@@ -335,25 +335,47 @@ class TimeMLReader(Reader):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
-        dct = root.find('DCT').find('TIMEX3')
+        dct = root.find('DCT').find('TIMEX3').attrib["value"]
 
-        nlp = spacy.load("en_core_web_sm")
+        nlp = spacy.load("en_core_web_trf")
+        sep = "<sep>"
+        nlp.tokenizer.add_special_case(sep, [{ORTH: sep}])
         nlp.add_pipe("sentencizer")
 
         article = []
+        sentence = []
         values = []
+        timex_value_in_sentence = False
 
         for node in text.iter():
             tokens = nlp(node.text.replace("\n\n"," ").lstrip())
             if node.tag == "TIMEX3":
-                values.append(node.attrib("value"))
-                article.extend(["<timex type="+node.attrib("type")+">"] + tokens + ["</timex>"])
+                values.append(node.attrib["value"])
+                sentence.extend(["<timex type="+node.attrib["type"]+">"])
+                sentence.extend(tokens)
+                sentence.extend(["</timex>"])
+                timex_value_in_sentence = True
             else:
-                article.extend(tokens)
+                sentence.extend(tokens)
             if node.tail:
-                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+                tail_tokens = nlp(node.tail.replace("\n\n"," ").lstrip())
+                # Checks if the sentence has ended
+                if len(list(tail_tokens.sents)) > 1:
+                    sents = list(tail_tokens.sents)
+                    tail_tokens = sents[1]
+
+                    if timex_value_in_sentence and str(sents[0][-1]) in [".", "!", "?"]:
+                        sentence.extend(sents[0])
+                        article.extend(sentence)
+                        sentence = []
+                        timex_value_in_sentence = False
+
+                sentence.extend(tail_tokens)
         
-        return article
+        article = ["normalise", "time", sep, dct, sep, "text", ":"]+article
+        values = sep.join(values)
+
+        return {"tokens":article, "target":values}
 
 class OzRockReader(Reader):
     def __init__(self, path: str):
@@ -549,4 +571,5 @@ def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
 if __name__ == "__main__":
-    TimeMLReader.TIMEX_value_gen("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized\\bbc_20130322_332.tml")
+    article = TimeMLReader.TIMEX_value_gen("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized\\bbc_20130322_332.tml")
+    print(article)

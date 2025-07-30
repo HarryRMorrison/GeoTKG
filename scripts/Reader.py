@@ -43,11 +43,14 @@ class Reader:
                 json.dump(data, f, indent=4)
 
     def convert_to_dataset(data):
-        formatted_data = {"tokens":[], "label":[]}
-        for sentence in data:
-            formatted_data["tokens"].append([str(token) for token in sentence["tokens"]])
-            formatted_data["label"].append([tag for tag in sentence["label"]])
-        return Dataset.from_dict(formatted_data)
+        if data[0].keys() == 'tokens':
+            formatted_data = {"tokens":[], "label":[]}
+            for sentence in data:
+                formatted_data["tokens"].append([str(token) for token in sentence["tokens"]])
+                formatted_data["label"].append([tag for tag in sentence["label"]])
+            return Dataset.from_dict(formatted_data)
+        else:
+            return Dataset.from_list(data)
 
     def get_label_list(data, label2id=True, id2label=True):
         label_list = sorted(list(set([tag for sentence in data for tag in sentence['label']])))
@@ -70,6 +73,9 @@ class TimeMLReader(Reader):
         elif method == 'tlink_event_event':
             extractor = TimeMLReader.TLINK_EE_sequencer
             json_name = os.path.join(CLEANDATA_PATH, "E-E", dataset, json_name)
+        elif method == "timex_value":
+            extractor = TimeMLReader.TIMEX_value_gen
+            json_name = os.path.join(CLEANDATA_PATH, "normalised", dataset, json_name)
         else:
             raise ValueError(f"Method {method} is not supported.")
         
@@ -87,7 +93,13 @@ class TimeMLReader(Reader):
 
             if filepath.endswith('.tml'):
                 print(f"Processing file {indicator+1}/{num_file}")
-                data.extend(extractor(filepath))
+                part = extractor(filepath)
+                if part == []:
+                    print("resolved ", filepath)
+                elif len(part[0]["input_text"].split("</timex"))-1 != len(part[0]["target_text"].split("<sep>")):
+                    print(filepath)
+                    print([len(part[0]["input_text"].split("</timex"))-1, len(part[0]["target_text"].split("<sep>"))])
+                data.extend(part)
                 indicator += 1
 
             if indicator % 200 == 0:
@@ -337,7 +349,7 @@ class TimeMLReader(Reader):
         text = root.find('TEXT')
         dct = root.find('DCT').find('TIMEX3').attrib["value"]
 
-        nlp = spacy.load("en_core_web_trf")
+        nlp = spacy.load("en_core_web_sm")
         sep = "<sep>"
         nlp.tokenizer.add_special_case(sep, [{ORTH: sep}])
         nlp.add_pipe("sentencizer")
@@ -346,36 +358,47 @@ class TimeMLReader(Reader):
         sentence = []
         values = []
         timex_value_in_sentence = False
+        timex_count = 0
 
         for node in text.iter():
             tokens = nlp(node.text.replace("\n\n"," ").lstrip())
             if node.tag == "TIMEX3":
                 values.append(node.attrib["value"])
-                sentence.extend(["<timex type="+node.attrib["type"]+">"])
-                sentence.extend(tokens)
-                sentence.extend(["</timex>"])
+                sentence.extend([f"<timex type={node.attrib["type"]}>{" ".join([str(tok) for tok in tokens])}</timex>"])
                 timex_value_in_sentence = True
+                timex_count += 1
             else:
                 sentence.extend(tokens)
             if node.tail:
-                tail_tokens = nlp(node.tail.replace("\n\n"," ").lstrip())
-                # Checks if the sentence has ended
-                if len(list(tail_tokens.sents)) > 1:
-                    sents = list(tail_tokens.sents)
-                    tail_tokens = sents[1]
+                node_tail_stripped = node.tail.replace("\n\n"," ").lstrip()
+                tail_tokens = nlp(node_tail_stripped)
+                sents = list(tail_tokens.sents)
 
-                    if timex_value_in_sentence and str(sents[0][-1]) in [".", "!", "?"]:
-                        sentence.extend(sents[0])
+                if node_tail_stripped != "" and (len(sents) > 1 or str(sents[0]).rstrip()[-1] in [".", "!", "?", '"', "'"]) or node.tail == "\n\n" or node.tail[-2:] == "\n\n":
+                    
+                    if node.tail == "\n\n":
+                        to_add = []
+                        tail_tokens == []
+                    elif len(sents) > 1:
+                        tail_tokens = sents[1]
+                        to_add = sents[0]
+                    else:
+                        to_add = tail_tokens
+
+
+                    if timex_value_in_sentence:
+                        sentence.extend(to_add)
                         article.extend(sentence)
-                        sentence = []
                         timex_value_in_sentence = False
 
+                    sentence = []
                 sentence.extend(tail_tokens)
         
-        article = ["normalise", "time", sep, dct, sep, "text", ":"]+article
+        task = f"normalise time {sep}{dct}{sep} text:"
         values = sep.join(values)
 
-        return {"tokens":article, "target":values}
+
+        return [{"input_text":task + " ".join([str(token) for token in article]), "target_text":values}] if timex_count > 0 else []
 
 class OzRockReader(Reader):
     def __init__(self, path: str):
@@ -554,22 +577,35 @@ def id_token_labels(dataset, label2id):
 
 # Could change later to make exact train, test, eval json files
 def obtain_dataset(dataset_name, method):
-    try:
-        train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
+    train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
+    val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
+    if method == "normalised":   
+        test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
+        return DatasetDict({"test": test, "train":train, "eval": val})
+    else:
         label_list, label2id, id2label = obtain_label_list(train)
-        val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
         dataset = {"train": id_token_labels(train, label2id),"eval": id_token_labels(val, label2id)}
         train, val = None, None
         if dataset_name != "OzRock":
             dataset["test"] = id_token_labels(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"], label2id)
-    except:
-        raise ValueError("A path does not exist!")
-    
-    return DatasetDict(dataset), label_list, label2id, id2label
+        return DatasetDict(dataset), label_list, label2id, id2label
     
 def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
+# def obtain_combined_dataset(dataset_names, method):
+#     for dataset_name in dataset_names:
+
+
 if __name__ == "__main__":
-    article = TimeMLReader.TIMEX_value_gen("rawdata\\TempEval3\\Evaluation\\te3-platinum-normalized\\bbc_20130322_332.tml")
+    article = TimeMLReader.TIMEX_value_gen("rawdata\TempEval3\Training\TE3-Silver-data-0\AFP_ENG_19970402.0207.tml")
     print(article)
+    print("--------------------------------------------------------------------------------------")
+    for time in article[0]["input_text"].split("</timex>"):
+        print(time)
+        print("--------------------------------------------------------------------------------------")
+    for val in article[0]["target_text"].split("<sep>"):
+        print(val)
+
+    print(len(article[0]["input_text"].split("</timex>")))
+    print(len(article[0]["target_text"].split("<sep>")))

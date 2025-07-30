@@ -7,11 +7,11 @@ class Utils:
         self.tokenizer = tokenizer
         self.label_list = label_list
     
-    def compute_metrics(self, true_predictions, true_labels):
+    def compute_metrics(self, true_predictions, true_labels, average):
         return {
-            "precision": precision_score(true_labels, true_predictions, average="micro"),
-            "recall": recall_score(true_labels, true_predictions, average="micro"),
-            "f1": f1_score(true_labels, true_predictions, average="micro"),
+            "precision": precision_score(true_labels, true_predictions, average=average),
+            "recall": recall_score(true_labels, true_predictions, average=average),
+            "f1": f1_score(true_labels, true_predictions, average=average),
         }
     
     def tokenize_datasets(self, datasets):
@@ -98,11 +98,11 @@ class NER_Utils(Utils):
             [self.label_list[l] for (p, l) in zip(prediction, label) if l != -100]
             for prediction, label in zip(predictions, labels)
         ]
-        return super().compute_metrics(true_predictions, true_labels)
+        return super().compute_metrics(true_predictions, true_labels, "micro")
     
 class TempRel_Utils(Utils):
-    def __init__(self, tokenizer, label_list):
-        super().__init__(tokenizer, label_list)
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
 
     def tokenize_datasets(self, datasets):
         return datasets.map(self.TempRel_tokenize, batched=True)
@@ -115,4 +115,30 @@ class TempRel_Utils(Utils):
         predictions = np.argmax(predictions, axis=1)
         true_labels = [[self.label_list[label[0]]] for label in labels]
         true_preds = [[self.label_list[pred]] for pred in predictions]
-        return super().compute_metrics(true_preds, true_labels)
+        return super().compute_metrics(true_preds, true_labels, "micro")
+    
+class TimexNorm_Utils(Utils):
+    def __init__(self, tokenizer, label_list):
+        super().__init__(tokenizer, label_list)
+
+    def tokenize_datasets(self, datasets):
+        return datasets.map(self.TimexNorm_tokenize, batched=True)
+    
+    def TimexNorm_tokenize(self, samples):
+        return self.tokenizer(samples["tokens"], truncation=True, is_split_into_words=True, padding=True, return_tensors="pt")
+    
+    def extract_norm_values(output_text):
+        return output_text
+    
+    def compute_metrics(self, eval_prediction):
+        predictions, labels = eval_prediction
+        predictions = list(np.argmax(predictions, axis=2))
+
+        # Could do some MSE or distance based metric by converting time to numbers
+        predicted_values = [[pred for pred in output.split("<sep>")] for output in predictions]
+        true_values = [[value for value in true.split("<sep>")] for true in labels]
+
+        return super().compute_metrics(predicted_values, true_values, "relaxed")
+        
+
+

@@ -1,35 +1,17 @@
 from Reader import TimeMLReader, OzRockReader, MATRESReader
 import os.path as path
 
+jsons = ["train.json", "eval.json", "test.json"]
+rawdata_path = path.join("rawdata")
+
 ####################### TempEval3 #######################
-rawdata_path = path.join("rawdata", "TempEval3")
+methods = ["timex_value"]# "tlink_event_time"
+folder = ["Training", "Gold", "Evaluation\\te3-platinum-normalised"]
 
-# te3_train_bio = TimeMLReader(path.join(rawdata_path,"Training"))
-# te3_train_bio.read(method="bio_tagger", json_name="train.json")
-
-# te3_test_bio = TimeMLReader(path.join(rawdata_path,"Evaluation","te3-platinum-normalized"))
-# te3_test_bio.read(method="bio_tagger", json_name="test.json")
-
-# te3_eval_bio = TimeMLReader(path.join(rawdata_path,"Gold"))
-# te3_eval_bio.read(method="bio_tagger", json_name="eval.json")
-
-# te3_train_tlink = TimeMLReader(path.join(rawdata_path,"Training"))
-# te3_train_tlink.read(method="tlink_event_time", json_name="train.json")
-
-# te3_test_tlink = TimeMLReader(path.join(rawdata_path,"Evaluation","te3-platinum-normalized"))
-# te3_test_tlink.read(method="tlink_event_time", json_name="test.json")
-
-# te3_eval_tlink = TimeMLReader(path.join(rawdata_path,"Gold"))
-# te3_eval_tlink.read(method="tlink_event_time", json_name="eval.json")
-
-te3_train_value = TimeMLReader(path.join(rawdata_path,"Training"))
-te3_train_value.read(method="timex_value", dataset="TempEval3", json_name="train.json")
-
-te3_test_value = TimeMLReader(path.join(rawdata_path,"Evaluation","te3-platinum-normalized"))
-te3_test_value.read(method="timex_value", dataset="TempEval3", json_name="test.json")
-
-te3_eval_value = TimeMLReader(path.join(rawdata_path,"Gold"))
-te3_eval_value.read(method="timex_value", dataset="TempEval3", json_name="eval.json")
+for method in methods:
+    for folder, json_name in zip(folders, jsons):
+        te3_read = TimeMLReader(path.join(rawdata_path, "TempEval3", folder))
+        te3_read.read(method, "TempEval3", json_name)
 
 ######################### OzRock #########################
 # rawdata_path = path.join("rawdata", "OzRock")

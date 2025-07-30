@@ -101,8 +101,8 @@ class NER_Utils(Utils):
         return super().compute_metrics(true_predictions, true_labels, "micro")
     
 class TempRel_Utils(Utils):
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
+    def __init__(self, tokenizer, label_list):
+        super().__init__(tokenizer, label_list)
 
     def tokenize_datasets(self, datasets):
         return datasets.map(self.TempRel_tokenize, batched=True)
@@ -118,27 +118,41 @@ class TempRel_Utils(Utils):
         return super().compute_metrics(true_preds, true_labels, "micro")
     
 class TimexNorm_Utils(Utils):
-    def __init__(self, tokenizer, label_list):
-        super().__init__(tokenizer, label_list)
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
 
     def tokenize_datasets(self, datasets):
-        return datasets.map(self.TimexNorm_tokenize, batched=True)
+        return datasets.map(self.TimexNorm_tokenize, batched=True, remove_columns=["input_text","target_text"])
     
-    def TimexNorm_tokenize(self, samples):
-        return self.tokenizer(samples["tokens"], truncation=True, is_split_into_words=True, padding=True, return_tensors="pt")
+    def TimexNorm_tokenize(self, batch):
+        model_inputs = self.tokenizer(batch["input_text"], truncation=True, padding="longest", max_length=512)
+        labels       = self.tokenizer(batch["target_text"], truncation=True, padding="longest", max_length=32)
+        model_inputs["labels"] = labels["input_ids"]
+        return model_inputs
     
     def extract_norm_values(output_text):
         return output_text
     
     def compute_metrics(self, eval_prediction):
-        predictions, labels = eval_prediction
-        predictions = list(np.argmax(predictions, axis=2))
+        preds, labels = eval_prediction  # both are np.arrays of shape [batch_size, seq_len]
 
-        # Could do some MSE or distance based metric by converting time to numbers
-        predicted_values = [[pred for pred in output.split("<sep>")] for output in predictions]
-        true_values = [[value for value in true.split("<sep>")] for true in labels]
+        # 1) Decode predictions
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
 
-        return super().compute_metrics(predicted_values, true_values, "relaxed")
+        # 2) Prepare & decode labels (replace -100 with pad_token_id so they decode cleanly)
+        labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # 3) Split on your separator
+        pred_splits = [p.split("<sep>") for p in decoded_preds]
+        label_splits = [g.split("<sep>") for g in decoded_labels]
+
+        # 4) Flatten to single lists
+        flat_preds  = [item for sub in pred_splits  for item in sub]
+        flat_labels = [item for sub in label_splits for item in sub]
+
+        # 5) Compute your (relaxed) metrics
+        return super().compute_metrics(flat_preds, flat_labels, "macro")
         
 
 

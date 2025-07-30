@@ -343,7 +343,7 @@ class TimeMLReader(Reader):
         return data
     
     @staticmethod
-    def TIMEX_value_gen(filepath : str):
+    def TIMEX_value_gen_OG(filepath : str):
         tree = ET.parse(filepath)
         root = tree.getroot()
         text = root.find('TEXT')
@@ -399,6 +399,65 @@ class TimeMLReader(Reader):
 
 
         return [{"input_text":task + " ".join([str(token) for token in article]), "target_text":values}] if timex_count > 0 else []
+    
+    def TIMEX_value_gen(filepath):
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        text = root.find('TEXT')
+        dct = root.find('DCT').find('TIMEX3').attrib["value"]
+        sep = "<sep>"
+
+        nlp = spacy.load("en_core_web_sm")
+        seps = ["<timex","type=DATE>","type=TIME>","type=DURATION>","type=SET>","</timex>"]
+        [nlp.tokenizer.add_special_case(thing, [{ORTH: thing}]) for thing in seps]
+        nlp.add_pipe("sentencizer")
+
+        locs = {}
+        dist = {}
+        types = {}
+        values = {}
+        article=[]
+
+        for node in text.iter():
+            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
+            if node.tag == "TIMEX3":
+                locs[node.attrib["tid"]] = len(article)
+                dist[node.attrib["tid"]] = len(tokens)
+                types[node.attrib["tid"]] = node.attrib["type"]
+                values[node.attrib["tid"]] = node.attrib["value"]
+            article.extend(tokens)
+            if node.tail:
+                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
+
+        article = [str(token) for token in article]
+        data = []
+
+        task = f"normalise time {sep}{dct}{sep} text:"
+
+        for tid in locs:
+            para = article.copy()
+            para.insert(locs[tid], f"<timex type={types[tid]}>")
+            para.insert(locs[tid]+dist[tid]+1, "</timex>")
+
+            found = False
+            trimmed = []
+            prev_sent = []
+
+            for sent in nlp(" ".join(para)).sents:
+                if "</timex>" in [str(toke) for toke in sent]:
+                    found = True
+                    trimmed.extend(prev_sent)
+                    trimmed.extend(sent)
+                elif found:
+                    trimmed.extend(sent)
+                    break
+                prev_sent = sent
+
+            data.append({"input_text": task + " ".join([str(token) for token in trimmed]), "target_text": values[tid]})
+    
+        return data
+
+        
 
 class OzRockReader(Reader):
     def __init__(self, path: str):
@@ -598,14 +657,9 @@ def obtain_label_list(dataset):
 
 
 if __name__ == "__main__":
-    article = TimeMLReader.TIMEX_value_gen("rawdata\TempEval3\Training\TE3-Silver-data-0\AFP_ENG_19970402.0207.tml")
-    print(article)
+    article = TimeMLReader.test("rawdata\TempEval3\Training\TE3-Silver-data-0\AFP_ENG_19970402.0207.tml")
+    #print(article)
     print("--------------------------------------------------------------------------------------")
-    for time in article[0]["input_text"].split("</timex>"):
-        print(time)
-        print("--------------------------------------------------------------------------------------")
-    for val in article[0]["target_text"].split("<sep>"):
-        print(val)
-
-    print(len(article[0]["input_text"].split("</timex>")))
-    print(len(article[0]["target_text"].split("<sep>")))
+    for exp in article:
+        print(exp["target_text"])
+        print(exp["input_text"])

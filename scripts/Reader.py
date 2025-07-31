@@ -461,9 +461,7 @@ class TimeMLReader(Reader):
 
             data.append({"input_text": task + " ".join([str(token) for token in trimmed]), "target_text": values[tid]})
     
-        return data
-
-        
+        return data       
 
 class OzRockReader(Reader):
     def __init__(self, path: str):
@@ -634,6 +632,14 @@ class MATRESReader(Reader):
             
         return data
 
+class MAVENReader(Reader):
+    def __init__(self, path: str):
+        super().__init__(path)
+
+    def read():
+
+        return
+
 def id_token_labels(dataset, label2id):
     def change_id(row):
         row["label"] = [label2id[tag] for tag in row["label"]]
@@ -673,7 +679,6 @@ def obtain_combined_dataset(dataset_names, method):
     val = val[0]
     test = concatenate_datasets(test).shuffle(seed=42)
     return DatasetDict({"test": test, "train":train, "eval": val})
-
 
 if __name__ == "__main__":
     article = TimeMLReader.TIMEX_value_gen("rawdata\\wikiwars\\trainingset\\tml\\02_WW1.tml")

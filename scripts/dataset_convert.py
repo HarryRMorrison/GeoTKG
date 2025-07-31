@@ -1,41 +1,43 @@
 from Reader import TimeMLReader, OzRockReader, MATRESReader
 import os.path as path
 
-jsons = ["train.json", "eval.json", "test.json"]
+jsons = ["train.json","eval.json","test.json"]
 rawdata_path = path.join("rawdata")
 
 ####################### TempEval3 #######################
-methods = ["timex_value"]# "tlink_event_time"
-folder = ["Training", "Gold", "Evaluation\\te3-platinum-normalised"]
+# methods = ["timex_value"]# "tlink_event_time"
+# folders = ["Training", "Gold", "Evaluation\\te3-platinum-normalised"]
 
-for method in methods:
-    for folder, json_name in zip(folders, jsons):
-        te3_read = TimeMLReader(path.join(rawdata_path, "TempEval3", folder))
-        te3_read.read(method, "TempEval3", json_name)
+# for method in methods:
+#     for folder, json_name in zip(folders, jsons):
+#         te3_read = TimeMLReader(path.join(rawdata_path, "TempEval3", folder))
+#         te3_read.read(method, "TempEval3", json_name)
 
 ######################### OzRock #########################
-# rawdata_path = path.join("rawdata", "OzRock")
-
-# ozrock_train = OzRockReader(rawdata_path)
+# ozrock_train = OzRockReader(path.join(rawdata_path,"OzRock"))
 # ozrock_train.read("train.json", "eval.json")
 
 ######################### MATRES #########################
-# rawdata_path = path.join("rawdata", "MATRES")
-
-# matres = MATRESReader(path.join(rawdata_path))
+# matres = MATRESReader(path.join(rawdata_path, "MATRES"))
 # matres.read()
 
 ######################### TBDense #########################
-# rawdata_path = path.join("rawdata", "TBDense")
+# folders = ["train", "dev", "test"]
 
-# tbdense_et_dev = TimeMLReader(path.join(rawdata_path, "dev"))
-# tbdense_et_dev.read('tlink_event_time', 'TBDense', "eval.json")
+# for folder, json_name in zip(folders, jsons):
+#     tbd_read = TimeMLReader(path.join(rawdata_path, "TBDense", folder))
+#     tbd_read.read('tlink_event_time', "TBDense", json_name)
 
-# tbdense_et_test = TimeMLReader(path.join(rawdata_path, "test"))
-# tbdense_et_test.read('tlink_event_event', 'TBDense', "test.json")
+######################### WikiWars #########################
+# folders = ["trainingset", "wikiwars_test_with_newline"]
 
-# tbdense_et_train = TimeMLReader(path.join(rawdata_path, "train"))
-# tbdense_et_train.read('tlink_event_event', 'TBDense', "train.json")
+# for folder, json_name in zip(folders, [jsons[0],jsons[2]]):
+#     te3_read = TimeMLReader(path.join(rawdata_path, "wikiwars", folder))
+#     te3_read.read("timex_value", "wikiwars", json_name)
 
+folders = ["trainingset", "tweets_test_with_newline"]
 
+for folder, json_name in zip(folders, [jsons[0],jsons[2]]):
+    te3_read = TimeMLReader(path.join(rawdata_path, "tweets", folder))
+    te3_read.read("timex_value", "tweets", json_name)
 

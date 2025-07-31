@@ -143,16 +143,25 @@ class TimexNorm_Utils(Utils):
         labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
         decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        # 3) Split on your separator
-        pred_splits = [p.split("<sep>") for p in decoded_preds]
-        label_splits = [g.split("<sep>") for g in decoded_labels]
-
         # 4) Flatten to single lists
-        flat_preds  = [item for sub in pred_splits  for item in sub]
-        flat_labels = [item for sub in label_splits for item in sub]
+        preds  = [[item] for item in decoded_preds]
+        labels = [[item] for item in decoded_labels]
 
         # 5) Compute your (relaxed) metrics
-        return super().compute_metrics(flat_preds, flat_labels, "macro")
+        return super().compute_metrics(preds, labels, "micro")
+    
+    def relaxed_score(self, predictions, truth_values):
+        # 1) Decode predictions
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+
+        # 2) Prepare & decode labels (replace -100 with pad_token_id so they decode cleanly)
+        labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # 4) Flatten to single lists
+        preds  = [[item] for item in decoded_preds]
+        labels = [[item] for item in decoded_labels]
+
         
 
 

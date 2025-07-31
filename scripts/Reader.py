@@ -42,8 +42,8 @@ class Reader:
             with open(intended_path, 'w') as f:
                 json.dump(data, f, indent=4)
 
-    def convert_to_dataset(data):
-        if data[0].keys() == 'tokens':
+    def convert_to_dataset(data, method):
+        if method != "timex_value":
             formatted_data = {"tokens":[], "label":[]}
             for sentence in data:
                 formatted_data["tokens"].append([str(token) for token in sentence["tokens"]])
@@ -96,20 +96,20 @@ class TimeMLReader(Reader):
                 part = extractor(filepath)
                 if part == []:
                     print("resolved ", filepath)
-                elif len(part[0]["input_text"].split("</timex"))-1 != len(part[0]["target_text"].split("<sep>")):
+                elif not all([len(sent["input_text"].split("</timex"))-1 == 1 for sent in part]):
                     print(filepath)
-                    print([len(part[0]["input_text"].split("</timex"))-1, len(part[0]["target_text"].split("<sep>"))])
+                    print([len(sent["input_text"].split("</timex"))-1 == 1 for sent in part])
                 data.extend(part)
                 indicator += 1
 
-            if indicator % 200 == 0:
-                datasets = TimeMLReader.convert_to_dataset(data)
+            if len(data)>200:
+                datasets = TimeMLReader.convert_to_dataset(data, method)
                 TimeMLReader.to_json(datasets, json_name)
                 data = []
                 datasets = None
 
         if len(data)!=0:
-            datasets = TimeMLReader.convert_to_dataset(data)
+            datasets = TimeMLReader.convert_to_dataset(data, method)
             TimeMLReader.to_json(datasets, json_name)
         return
 
@@ -421,10 +421,16 @@ class TimeMLReader(Reader):
         for node in text.iter():
             tokens = nlp(node.text.replace("\n\n"," ").lstrip())
             if node.tag == "TIMEX3":
+                try:
+                    if node.attrib["value"].lower() != "null":
+                        values[node.attrib["tid"]] = node.attrib["value"]
+                    else:
+                        continue
+                except KeyError:
+                    continue
                 locs[node.attrib["tid"]] = len(article)
                 dist[node.attrib["tid"]] = len(tokens)
                 types[node.attrib["tid"]] = node.attrib["type"]
-                values[node.attrib["tid"]] = node.attrib["value"]
             article.extend(tokens)
             if node.tail:
                 article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
@@ -652,12 +658,25 @@ def obtain_dataset(dataset_name, method):
 def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
-# def obtain_combined_dataset(dataset_names, method):
-#     for dataset_name in dataset_names:
+def obtain_combined_dataset(dataset_names, method):
+    train = []
+    val = []
+    test = []
+    for dataset_name in dataset_names:
+        train.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"])
+        test.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"])
+        try:
+            val.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"])
+        except:
+            continue
+    train = concatenate_datasets(train).shuffle(seed=42)
+    val = val[0]
+    test = concatenate_datasets(test).shuffle(seed=42)
+    return DatasetDict({"test": test, "train":train, "eval": val})
 
 
 if __name__ == "__main__":
-    article = TimeMLReader.test("rawdata\TempEval3\Training\TE3-Silver-data-0\AFP_ENG_19970402.0207.tml")
+    article = TimeMLReader.TIMEX_value_gen("rawdata\\wikiwars\\trainingset\\tml\\02_WW1.tml")
     #print(article)
     print("--------------------------------------------------------------------------------------")
     for exp in article:

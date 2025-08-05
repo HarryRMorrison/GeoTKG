@@ -6,8 +6,9 @@ from spacy.symbols import ORTH
 import json
 import numpy as np
 
-RAWDATA_PATH = os.path.join("rawdata")
-CLEANDATA_PATH = os.path.join("cleandata")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAWDATA_PATH = os.path.join(BASE_DIR, "rawdata")
+CLEANDATA_PATH = os.path.join(BASE_DIR, "cleandata")
 
 class Reader:
     def __init__(self, path : str):
@@ -341,64 +342,6 @@ class TimeMLReader(Reader):
             data.append({'tokens':trimmed, 'label':[relType]})
                             
         return data
-    
-    @staticmethod
-    def TIMEX_value_gen_OG(filepath : str):
-        tree = ET.parse(filepath)
-        root = tree.getroot()
-        text = root.find('TEXT')
-        dct = root.find('DCT').find('TIMEX3').attrib["value"]
-
-        nlp = spacy.load("en_core_web_sm")
-        sep = "<sep>"
-        nlp.tokenizer.add_special_case(sep, [{ORTH: sep}])
-        nlp.add_pipe("sentencizer")
-
-        article = []
-        sentence = []
-        values = []
-        timex_value_in_sentence = False
-        timex_count = 0
-
-        for node in text.iter():
-            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
-            if node.tag == "TIMEX3":
-                values.append(node.attrib["value"])
-                sentence.extend([f"<timex type={node.attrib["type"]}>{" ".join([str(tok) for tok in tokens])}</timex>"])
-                timex_value_in_sentence = True
-                timex_count += 1
-            else:
-                sentence.extend(tokens)
-            if node.tail:
-                node_tail_stripped = node.tail.replace("\n\n"," ").lstrip()
-                tail_tokens = nlp(node_tail_stripped)
-                sents = list(tail_tokens.sents)
-
-                if node_tail_stripped != "" and (len(sents) > 1 or str(sents[0]).rstrip()[-1] in [".", "!", "?", '"', "'"]) or node.tail == "\n\n" or node.tail[-2:] == "\n\n":
-                    
-                    if node.tail == "\n\n":
-                        to_add = []
-                        tail_tokens == []
-                    elif len(sents) > 1:
-                        tail_tokens = sents[1]
-                        to_add = sents[0]
-                    else:
-                        to_add = tail_tokens
-
-
-                    if timex_value_in_sentence:
-                        sentence.extend(to_add)
-                        article.extend(sentence)
-                        timex_value_in_sentence = False
-
-                    sentence = []
-                sentence.extend(tail_tokens)
-        
-        task = f"normalise time {sep}{dct}{sep} text:"
-        values = sep.join(values)
-
-
-        return [{"input_text":task + " ".join([str(token) for token in article]), "target_text":values}] if timex_count > 0 else []
     
     def TIMEX_value_gen(filepath):
         tree = ET.parse(filepath)

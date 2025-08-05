@@ -1,4 +1,4 @@
-from fastcoref import FCoref
+import spacy
 
 class EventRoleLabel:
     def __init__(self, resolved_text):
@@ -7,35 +7,39 @@ class EventRoleLabel:
     
     
     def resolve_coref(text):
-        model = FCoref(device="cpu")
-        preds = model.predict(texts=[text])
-        result = preds[0]
+        nlp = spacy.load("en_coreference_web_trf")
+        nlp.add_pipe("experimental_span_resolver", after="coref")
+        nlp.initialize()
+        doc = nlp(text)
 
-        # 3) get char-level spans for each cluster
-        clusters = result.get_clusters(as_strings=False)
+         # 1. Build a map: (span_start, span_end) -> representative text
+        span_reps = {}
+        for key, spans in doc.spans.items():
+            if key.startswith("coref_clusters"):
+                main = spans[0]  # first mention = representative
+                for span in spans:
+                    span_reps[(span.start, span.end)] = main.text
 
-        # 4) build a list of all replacements: (start, end, rep_text)
-        replacements = []
-        for cluster in clusters:
-            if len(cluster) < 2:
-                continue
-            # the “antecedent” is the first span in the cluster
-            rep_start, rep_end = cluster[0]
-            rep_text = text[rep_start:rep_end]
+        # 2. Walk through tokens, replacing spans as a unit
+        resolved_tokens = []
+        i = 0
+        while i < len(doc):
+            replaced = False
+            for (start, end), main_text in span_reps.items():
+                if i == start:
+                    # emit the full replacement once
+                    resolved_tokens.append(main_text)
+                    i = end  # skip past the span
+                    replaced = True
+                    break
+            if not replaced:
+                # no span starts here → keep the original token
+                resolved_tokens.append(doc[i].text)
+                i += 1
 
-            # replace every other span with rep_text
-            for mention_start, mention_end in cluster[1:]:
-                replacements.append((mention_start, mention_end, rep_text))
-
-        # 5) apply replacements from end→start so earlier edits don’t shift later spans
-        replacements.sort(key=lambda x: x[0], reverse=True)
-        resolved = text
-        for start, end, rep_text in replacements:
-            resolved = resolved[:start] + rep_text + resolved[end:]
-
-        return resolved
+        return " ".join(resolved_tokens)
 
 if __name__=="__main__":
-    text = "Alice picked up her book because she wanted to read it."
+    text = "Alice picked up her book because she wanted to read it. She then went and got her glasses to read it."
     resolved_text = EventRoleLabel.resolve_coref(text)
     print(resolved_text)

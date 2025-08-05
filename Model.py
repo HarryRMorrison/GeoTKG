@@ -5,7 +5,7 @@ class Model:
     def __init__(self, model_path):
         self.tokenizer = RobertaTokenizerFast.from_pretrained(model_path)
         self.model = RobertaForTokenClassification.from_pretrained(model_path)
-        self.task = model_path.split('/')
+        self.task = model_path.split('\\')[-1]
 
     def get_prediction(self, text, dim):
         encodings=self.tokenizer(text, padding=True, truncation=True, return_tensors="pt")
@@ -20,17 +20,32 @@ class NERModel(Model):
     def __init__(self, model_path):
         super().__init__(model_path)
 
-    def predict(self, text, return_locations=False):
+    def predict(self, text, return_locations=False, return_decoded_tokens=False):
         predictions = self.get_prediction(text, dim=-1)
+        return_pack = [predictions]
 
         if return_locations:
             if self.task == "Geo-NER":
                 locations = NERModel.get_geo_entity_locations(predictions)
             else:
                 locations = NERModel.get_event_locations(predictions)
-            return predictions, locations
-        else:
-            return predictions
+            return_pack.append(locations)
+
+        if return_decoded_tokens:
+            encodings = self.tokenizer(text, padding=True, truncation=True, return_tensors="pt")
+            decodings = self.tokenizer.convert_ids_to_tokens(encodings["input_ids"][0])
+            out = []
+            for token in decodings:
+                # if token == "<s>":
+                #     sent = ["<s>"]
+                # elif token == "</s>":
+                #     sent.append("</s>")
+                #     out.append(sent)
+                # else:
+                #     sent.append(token.strip("Ġ"))
+                out.append(token.strip("Ġ"))
+            return_pack.append(out)
+        return return_pack
     
     @staticmethod
     def get_geo_entity_locations(predictions):

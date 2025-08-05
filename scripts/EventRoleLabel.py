@@ -1,11 +1,28 @@
 import spacy
+from spacy.tokens import Doc
+import neo4j
 
 class EventRoleLabel:
     def __init__(self, resolved_text):
         self.resolved_text = resolved_text
+
+    def object_subject_extract(self, pretokenized):
+        nlp = spacy.load("en_core_web_trf")
+        doc = Doc(nlp.vocab, pretokenized)
+        toks = []
+        for i, sent in enumerate(doc):
+            print(i)
+            for token in sent:
+                if token.dep_ in ["nsubj"]:
+                    print(f"SUBJECT: {token.text}")
+                elif token.dep_ in ["dobj", "pobj"]:
+                    print(f"OBJECT: {token.text}")
+                toks.append(token)
+        
+
     
     
-    
+    @staticmethod
     def resolve_coref(text):
         nlp = spacy.load("en_coreference_web_trf")
         nlp.add_pipe("experimental_span_resolver", after="coref")
@@ -40,6 +57,7 @@ class EventRoleLabel:
         return " ".join(resolved_tokens)
 
 if __name__=="__main__":
-    text = "Alice picked up her book because she wanted to read it. She then went and got her glasses to read it."
+    text = "The Henry River Project began on the south-western limb of the Wanna Syncline in 2004. NeFou drilled at the location in 2005. The discoverd quartz veins then gold."
     resolved_text = EventRoleLabel.resolve_coref(text)
-    print(resolved_text)
+    idk = EventRoleLabel(resolved_text)
+    idk.object_subject_extract()

@@ -2,46 +2,43 @@ import spacy
 from spacy.tokens import Doc
 from neo4j.graph import Node
 
-# pretokenized is list of list of strings which are each sentences
+# pretokenized is list of strings which are each sentences
 class EventRoleLabel:
     def __init__(self, pretokenized):
         self.pretokenized = pretokenized
     
     def reconstruct(self, geo_entity_locs, event_time_locs):
-        i = 0
-        original = self.pretokenized
-
+        nlp = spacy.load("en_core_web_trf")
+        doc = Doc(nlp.vocab, self.pretokenized)
+        
         event_starts = [s for s, e in event_time_locs]
         event_ends = [e for s, e in event_time_locs]
-        entit_starts = [s for s, e in geo_entity_locs]
-        entit_ends = [e for s, e in geo_entity_locs]
+        geo_starts = [s for s, e in geo_entity_locs]
+        geo_ends = [e for s, e in geo_entity_locs]
 
-        token_len = len([token for sent in self.pretokenized for token in sent])
+        token_len = len(self.pretokenized)
+        i = 0
         out = []
         event_idxs = []
-        entit_idxs = []
+        geo_idxs = []
 
         while i < token_len:
-            if original[i] == "<s>":
-                sent = []
-                event_idx = []
-                entit_idx = []
-            elif original[i] == "</s>":
-                out.append(sent)
-                event_idxs.append(event_idx)
-                entit_idxs.append(entit_idx)
+            if doc[i].text in ["<s>", "</s>"]:
+                i += 1
+                continue
             elif i in event_starts:
                 ind = event_starts.index(i)
-                event_idx.append(len(sent))
-                sent.append(original[event_starts[ind]:event_ends[ind]])
-            elif i in entit_starts:
-                ind = entit_starts.index(i)
-                entit_idx.append(len(sent))
-                sent.append(original[entit_starts[ind]:entit_ends[ind]])
+                event_idxs.append(len(out))
+                out.extend(doc[event_starts[ind]:event_ends[ind]])
+            elif i in geo_starts:
+                ind = geo_starts.index(i)
+                geo_idxs.append(len(out))
+                out.extend(doc[geo_starts[ind]:geo_ends[ind]])
             else:
-                sent.append(original[i])
+                out.append(doc[i])
+            i += 1
         
-        return out, event_idxs, entit_idxs
+        return out, event_idxs, geo_idxs
 
 
     # Assume all information in sentence (post coref resolve)
@@ -64,11 +61,7 @@ class EventRoleLabel:
                         ev_object = child.text
                 if ev_subject and ev_object:
                     nodes.append(Node("Event", event=doc[event_i].text, subject=ev_subject, object=ev_object))
-                
-                
-        
-
-    
+            
     
 def resolve_coref(text):
     nlp = spacy.load("en_coreference_web_trf")
@@ -104,7 +97,7 @@ def resolve_coref(text):
     return " ".join(resolved_tokens)
 
 if __name__=="__main__":
-    text = "The Henry River Project began on the south-western limb of the Wanna Syncline in 2004. NeFou drilled at the location in 2005. The discoverd quartz veins then gold."
+    text = "The Henry River Project began on the south-western limb of the Wanna Syncline in 2004. They discoverd quartz veins then gold."
     resolved_text = EventRoleLabel.resolve_coref(text)
     idk = EventRoleLabel(resolved_text)
     idk.object_subject_extract()

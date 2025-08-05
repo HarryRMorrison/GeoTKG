@@ -1,5 +1,5 @@
 import torch
-from transformers import RobertaForTokenClassification, RobertaTokenizerFast
+from transformers import RobertaForTokenClassification, RobertaTokenizerFast, BartTokenizer, BartForConditionalGeneration
 
 class Model:
     def __init__(self, model_path):
@@ -36,24 +36,17 @@ class NERModel(Model):
             decodings = self.tokenizer.convert_ids_to_tokens(encodings["input_ids"][0])
             out = []
             for token in decodings:
-                # if token == "<s>":
-                #     sent = ["<s>"]
-                # elif token == "</s>":
-                #     sent.append("</s>")
-                #     out.append(sent)
-                # else:
-                #     sent.append(token.strip("Ġ"))
                 out.append(token.strip("Ġ"))
             return_pack.append(out)
         return return_pack
     
     @staticmethod
-    def get_geo_entity_locations(predictions):
+    def get_geo_entity_locations(predictions, bi_map={0:6, 1:7, 2:8, 3:9, 4:10}):
         locations = []
-        bi_map = {0:6, 1:7, 2:8, 3:9, 4:10}
+        Bs = bi_map.keys()
         i = 0
         while i < len(predictions[0]):
-            if predictions[0][i].item() >= 0 and predictions[0][i].item() <= 4:  # 'B-LOCATION': 0, 'B-MINERAL': 1, 'B-ORE_DEPOSIT': 2, 'B-ROCK': 3, 'B-STRAT': 4, 'B-TIMESCALE': 5
+            if predictions[0][i].item() in Bs:  # 'B-LOCATION': 0, 'B-MINERAL': 1, 'B-ORE_DEPOSIT': 2, 'B-ROCK': 3, 'B-STRAT': 4, 'B-TIMESCALE': 5
                 start = i
                 i += 1
                 ent_type = predictions[0][i].item()
@@ -65,19 +58,28 @@ class NERModel(Model):
         return locations
 
     @staticmethod
-    def get_event_locations(predictions):
+    def get_event_locations(predictions, bi_map={2:7}, return_types = False):
+        labels = ["B-DATE", "B-DURATION", "B-EVENT", "B-SET", "B-TIME", "I-DATE", "I-DURATION", "I-EVENT", "I-SET", "I-TIME"]
         locations = []
+        types = []
+        Bs = bi_map.keys()
         i = 0
         while i < len(predictions[0]):
-            if predictions[0][i].item() == 2:  # B-Event
+            if predictions[0][i].item() in Bs:  # B-Event: 2
                 start = i
                 i += 1
-                while i < len(predictions) and predictions[i] == 7:  # I-Event
+                ent_type = predictions[0][i].item()
+                types.append(labels[ent_type])
+                while i < len(predictions) and predictions[i] == bi_map[ent_type]:  # I-Event: 7
                     i += 1
                 locations.append([start, i])  # [start, end) format
             else:
                 i += 1
-        return locations
+
+        if return_types:
+            return locations, types
+        else:
+            return locations
     
 class TempRelModel(Model):
     def __init__(self, model_path):
@@ -85,5 +87,32 @@ class TempRelModel(Model):
 
     def predict(self, text):
         return self.get_prediction(text, 1)
+
+# Assume only geo_time_locs
+class TimexNormModel(Model):
+    def __init__(self, model_path):
+        self.tokenizer = BartTokenizer.from_pretrained(model_path)
+        self.model = BartForConditionalGeneration.from_pretrained(model_path)
+
+    def preprocessing(self, reconstruction, timex_types, DCT):
+        text, timex_idxs, geo_time_idxs = reconstruction
+        input_text = []
+        timex_counter = 0
+
+        for sent, timex_sent_ids in zip(text, timex_idxs):
+            for timex_id in timex_sent_ids:
+                sample = sent.copy()
+                sample.insert(timex_id+1, "</timex>")
+                sample.insert(timex_id, f"<timex type={timex_types[timex_counter]}>")
+                timex_counter += 1
+                sample.insert(0, f"normalise time <sep>{DCT}<sep> text:")
+                input_text.append(sample)
+
+        self.input_text = input_text
+        self.geo_time_idxs = geo_time_idxs
+
+
+        
+
 
     

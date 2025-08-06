@@ -32,10 +32,12 @@ linker = EventRoleLabel(tokens)
 geo_time_locs = NERModel.get_geo_entity_locations(geo_predictions, bi_map={5:11})
 timex_locs, timex_types = NERModel.get_event_locations(event_time_predictions, bi_map={0:5, 1:6, 3:8, 4:9}, return_types=True)
 
-#TimexNorm = TimexNormModel("")
+TimexNorm = TimexNormModel("scripts\\results\\TimeNormBart")
 recon = linker.reconstruct(geo_time_locs, timex_locs)
-#TimexNorm.preprocessing(recon, timex_types)
+TimexNorm.preprocessing(recon, timex_types, "2020")
+cal_times, geo_times = TimexNorm.predict()
 
+print(cal_times, geo_times)
 
 # ---------------------------------------- Event Entity Linking ----------------------------------------
 # Need to update to recognise people and organisations.

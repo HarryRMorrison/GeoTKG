@@ -6,6 +6,9 @@ from neo4j.graph import Node
 class EventRoleLabel:
     def __init__(self, pretokenized):
         self.pretokenized = pretokenized
+
+    def span_resolver(self):
+        return
     
     def reconstruct(self, geo_entity_locs, event_time_locs):
         nlp = spacy.load("en_core_web_trf")
@@ -29,11 +32,11 @@ class EventRoleLabel:
             elif i in event_starts:
                 ind = event_starts.index(i)
                 event_idxs.append(len(out))
-                out.extend(doc[event_starts[ind]:event_ends[ind]])
+                out.extend(doc[event_starts[ind]:event_ends[ind]+1])
             elif i in geo_starts:
                 ind = geo_starts.index(i)
                 geo_idxs.append(len(out))
-                out.extend(doc[geo_starts[ind]:geo_ends[ind]])
+                out.append("".join([doc[j].text for j in range(geo_starts[ind], geo_ends[ind]+1)]))
             else:
                 out.append(doc[i])
             i += 1

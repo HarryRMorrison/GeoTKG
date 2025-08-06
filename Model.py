@@ -1,5 +1,8 @@
 import torch
 from transformers import RobertaForTokenClassification, RobertaTokenizerFast, BartTokenizer, BartForConditionalGeneration
+from pyrolite.util.time import Timescale
+from transformers import pipeline
+from spacy.matcher import Matcher
 
 class Model:
     def __init__(self, model_path):
@@ -84,8 +87,12 @@ class TempRelModel(Model):
 # Assume only geo_time_locs
 class TimexNormModel(Model):
     def __init__(self, model_path):
-        self.tokenizer = BartTokenizer.from_pretrained(model_path)
-        self.model = BartForConditionalGeneration.from_pretrained(model_path)
+        self.normalizer = pipeline(
+            "text2text-generation",
+            model=model_path,
+            tokenizer=model_path,
+            device=0  # or -1 for CPU
+        )
 
     def preprocessing(self, reconstruction, timex_types, DCT):
         text, timex_idxs, geo_time_idxs = reconstruction
@@ -98,11 +105,32 @@ class TimexNormModel(Model):
             sample.insert(0, f"normalise time <sep>{DCT}<sep> text:")
             input_text.append(sample)
 
+        self.text = text
         self.input_text = input_text
         self.geo_time_idxs = geo_time_idxs
+        self.time_idxs = timex_idxs
 
     def predict(self):
-        
+        geo_times = self.geo_timescale()
+
+        results = self.normalizer(
+            ["Your input text to summarize."],
+            max_length=30,
+            num_beams=5,
+        )
+
+        cal_times = {idx:result for idx, result in zip(self.time_idxs, results)}
+
+        return cal_times, geo_times
+    
+    # Need to add text matching for "ma"
+    def geo_timescale(self):
+        ts = Timescale()
+        geo_times = {}
+        for time_i in self.geo_time_idxs:
+            min, max = ts.text2age(str(self.text[time_i]))
+            geo_times[time_i] = (min, max)
+        return geo_times
 
 
         

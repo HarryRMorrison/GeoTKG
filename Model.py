@@ -3,6 +3,7 @@ from transformers import RobertaForTokenClassification, RobertaTokenizerFast, Ba
 from pyrolite.util.time import Timescale
 from transformers import pipeline
 from spacy.matcher import Matcher
+import spacy
 
 class Model:
     def __init__(self, model_path):
@@ -29,10 +30,9 @@ class NERModel(Model):
     def decode(self, text):
         encodings = self.tokenizer(text, padding=True, truncation=True, return_tensors="pt")
         decodings = self.tokenizer.convert_ids_to_tokens(encodings["input_ids"][0])
-        out = []
-        for token in decodings:
-            out.append(token.strip("Ġ"))
-        return out
+        out = "".join(decodings)
+        out = out.split("Ġ")
+        return decodings, out
     
     # 'B-LOCATION': 0, 'B-MINERAL': 1, 'B-ORE_DEPOSIT': 2, 'B-ROCK': 3, 'B-STRAT': 4, 'B-TIMESCALE': 5
     # 'I-LOCATION': 6, 'I-MINERAL': 7, 'I-ORE_DEPOSIT': 8, 'I-ROCK': 9, 'I-STRAT': 10, 'I-TIMESCALE': 11
@@ -44,9 +44,9 @@ class NERModel(Model):
         while i < len(predictions[0]):
             if predictions[0][i].item() in Bs:
                 start = i
-                i += 1
                 ent_type = predictions[0][i].item()
-                while i < len(predictions) and predictions[i] == bi_map[ent_type]:
+                i += 1
+                while i < len(predictions[0]) and predictions[0][i] == bi_map[ent_type]:
                     i += 1
                 locations.append([start, i])  # [start, end) format
             else:
@@ -96,16 +96,14 @@ class TimexNormModel(Model):
 
     def preprocessing(self, tokens, timex_locs, geo_time_locs, timex_types, DCT):
         input_text = []
-        for i, (s, e) in enumerate(timex_locs):
+        for i, loc in enumerate(timex_locs):
             sample = tokens.copy()
-            sample.insert(s, f"<timex type={timex_types[i]}>")
-            sample.insert(e+1, "</timex>")
+            time = sample.pop(loc)
+            sample.insert(loc, f"<timex type={timex_types[i]}>{time}</timex>")
             sample.insert(0, f"normalise time <sep>{DCT}<sep> text:")
-            sample.remove("<s>")
-            sample.remove("</s>")
             input_text.append(" ".join(sample))
-        print(input_text)
-        self.text = tokens
+
+        self.tokens = tokens
         self.input_text = input_text
         self.geo_time_idxs = geo_time_locs
         self.time_idxs = timex_locs
@@ -119,7 +117,7 @@ class TimexNormModel(Model):
             num_beams=5,
         )
 
-        cal_times = [[index,result] for index, result in zip(self.time_idxs, results)]
+        cal_times = [[index,result["generated_text"]] for index, result in zip(self.time_idxs, results)]
 
         return cal_times, geo_times
     
@@ -127,11 +125,29 @@ class TimexNormModel(Model):
     def geo_timescale(self):
         ts = Timescale()
         geo_times = []
-        for s,e in self.geo_time_idxs:
-            min, max = ts.text2age("".join([self.text[j] for j in range(s, e+1)]))
-            if min == None and max == None:
-                min, max = ts.text2age("".join([self.text[j] for j in range(s, e)]))
-            geo_times.append([[s,e], (min, max)])
+        for loc in self.geo_time_idxs:
+            min, max = ts.text2age(self.tokens[loc])
+            geo_times.append([loc, (min, max)])
+
+        nlp = spacy.blank("en")
+        matcher = Matcher(nlp.vocab)
+
+        pattern_no_space = [
+            {"TEXT": {"REGEX": r"^~?\d+(\.\d+)?ma$"}}
+        ]
+        # with-space: “~1000 ma” or “1000.00 ma”
+        pattern_with_space = [
+            {"TEXT": {"REGEX": r"^~?\d+(\.\d+)?$"}},
+            {"LOWER": "ma"}
+        ]
+        matcher.add("GEO_DATE", [pattern_no_space, pattern_with_space])
+
+        doc = nlp(" ".join(self.tokens))
+
+        for _, start, end in matcher(doc):
+            date = int(doc[start:end].text.lower().strip("~ma"))
+            geo_times.append([start, (date, None)])
+        
         return geo_times
 
 

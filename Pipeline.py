@@ -40,6 +40,9 @@ class GeoTKGPipeline:
 
         #   3.2 
 
+        print(tokens)
+        print(original)
+        print(timex_types)
         for loc in [cal_times, geo_times]:
             print(loc)
 
@@ -57,7 +60,8 @@ if __name__=="__main__":
         evt_ner = NERModel("scripts\\results\\EventTimex-NER"),
         time_norm = TimexNormModel("scripts\\results\\TimeNormBart")
     )
-    text = "The Henry River Project began on the south-western limb of Perth in 2004. At the location, they discoverd a quartz vein formation. The formation was dated to the Archean. Other projects have found gold dated to the Jurassic or ~1000ma."
+    #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year later, they discoverd a quartz vein formation. The formation was dated to the Archean. Other projects have found gold dated to the Jurassic or ~1000ma."
+    text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project began, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
     #text = "The formation was dated to the Archean."
     model.fit(text)

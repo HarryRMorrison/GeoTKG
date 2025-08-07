@@ -579,9 +579,57 @@ class MAVENReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
 
-    def read():
+    def read(self):
+        for file in self.file_paths_to_read:
+            ins, outs = [], []
+            name = os.path.basename(file).split(".")[0]
+            print(f"Reading {name}")
+            with open(file, 'r') as f:
+                data = [json.loads(line) for line in f]
+                for line in data:
+                    input, output = MAVENReader.get_event_and_timex(line)
+                    ins.extend(input)
+                    outs.extend(output)
+
+
+                
+
+
+        
+        return
+    
+    @staticmethod
+    def get_E_T_temprel(line):
 
         return
+    
+    @staticmethod
+    def get_E_E_temprel(line):
+
+        return
+    
+    @staticmethod
+    def get_event_and_timex(line):
+        try:
+            events = [instance for mention in line["events"] for instance in mention["mention"] ]
+        except KeyError:
+            events = line["event_mentions"]
+        timexs = line["TIMEX"]
+        sents = line["tokens"]
+        labels = [["O" for token in sent] for sent in sents]
+
+        for time in timexs:
+            replace = f"B-{time['type']}"
+            for i in range(time["offset"][0], time["offset"][1]):
+                labels[time["sent_id"]][i] = replace
+                replace = f"I-{time['type']}"
+
+        for event in events:
+            replace = "B-EVENT"
+            for i in range(event["offset"][0], event["offset"][1]):
+                labels[event["sent_id"]][i] = replace
+                replace = "I-EVENT"
+        return sents, labels
 
 def id_token_labels(dataset, label2id):
     def change_id(row):
@@ -624,9 +672,5 @@ def obtain_combined_dataset(dataset_names, method):
     return DatasetDict({"test": test, "train":train, "eval": val})
 
 if __name__ == "__main__":
-    article = TimeMLReader.TIMEX_value_gen("rawdata\\wikiwars\\trainingset\\tml\\02_WW1.tml")
-    #print(article)
-    print("--------------------------------------------------------------------------------------")
-    for exp in article:
-        print(exp["target_text"])
-        print(exp["input_text"])
+    test = MAVENReader("rawdata\MAVEN_ERE")
+    test.read()

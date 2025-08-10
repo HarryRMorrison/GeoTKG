@@ -104,20 +104,28 @@ class NER_Utils(Utils):
         return super().compute_metrics(true_predictions, true_labels, "micro")
     
 class TempRel_Utils(Utils):
-    def __init__(self, tokenizer, label_list):
-        super().__init__(tokenizer, label_list)
+    def __init__(self, tokenizer, label2id, id2label):
+        self.tokenizer = tokenizer
+        self.label2id = label2id
+        self.id2label = id2label
+    
+    def encode_labels(self, example):
+        example["label"] = self.label2id[example["label"][0]]
+        return example
 
     def tokenize_datasets(self, datasets):
-        return datasets.map(self.TempRel_tokenize, batched=True)
+        datasets = datasets.map(self.TempRel_tokenize, batched=True)
+        datasets = datasets.map(self.encode_labels)
+        return datasets
     
     def TempRel_tokenize(self, samples):
         return self.tokenizer(samples["tokens"], truncation=True, is_split_into_words=True, padding=True, return_tensors="pt")
     
     def compute_metrics(self, eval_prediction):
-        predictions, labels = eval_prediction
+        predictions, ids = eval_prediction
         predictions = np.argmax(predictions, axis=1)
-        true_labels = [[self.label_list[label[0]]] for label in labels]
-        true_preds = [[self.label_list[pred]] for pred in predictions]
+        true_labels = [[self.id2label[id]] for id in ids]
+        true_preds = [[self.id2label[pred]] for pred in predictions]
         return super().compute_metrics(true_preds, true_labels, "micro")
     
 class TimexNorm_Utils(Utils):

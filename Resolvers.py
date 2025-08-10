@@ -56,7 +56,7 @@ def found_span_resolve(i, locs, counts, span2tok, original):
         i += 1
     return span, i
 
-def reconstruct(tokens, original, geo_locations, evtm_locations):
+def reconstruct(tokens, original, geo_time_locs, geo_entity_locs, event_locs, timex_locs):
     span2tok = []
     current_span = 0
     for i, tok in enumerate(tokens[:-1]):
@@ -68,31 +68,50 @@ def reconstruct(tokens, original, geo_locations, evtm_locations):
     unique_elements, counts = np.unique(span2tok, return_counts=True)
     counts = {el:co for el, co in zip(unique_elements, counts)}
 
-    locs1 = {s:e for s, e in geo_locations}
-    starts1 = list(locs1.keys())
-    new_loc1 = []
-    locs2 = {s:e for s, e in evtm_locations}
-    starts2 = list(locs2.keys())
-    new_loc2 = []
+    geo_entity_locs = {s:e for s, e in geo_entity_locs}
+    starts_geo_ent = list(geo_entity_locs.keys())
+    new_geo_ent_locs = []
+
+    geo_time_locs = {s:e for s, e in geo_time_locs}
+    starts_geo_time = list(geo_time_locs.keys())
+    new_geo_time_locs = []
+
+    event_locs = {s:e for s, e in event_locs}
+    starts_events = list(event_locs.keys())
+    new_events_locs = []
+
+    timex_locs = {s:e for s, e in timex_locs}
+    starts_timexs = list(timex_locs.keys())
+    new_timex_locs = []
 
     out = []
-    i = 0
+    i = 1
 
     while i < len(tokens[:-1]):
-        if tokens[i] == "<s>":
-            i += 1
-            continue
-        elif i in starts1:
-            starts1.remove(i)
-            new_loc1.append(len(out))
-            span, i = found_span_resolve(i, locs1, counts, span2tok, original)
-        elif i in starts2:
-            starts2.remove(i)
-            new_loc2.append(len(out))
-            span, i = found_span_resolve(i, locs2, counts, span2tok, original)
+        # Check if geo ent
+        if i in starts_geo_ent:
+            starts_geo_ent.remove(i)
+            new_geo_ent_locs.append(len(out))
+            span, i = found_span_resolve(i, geo_entity_locs, counts, span2tok, original)
+        # Check if geo time
+        elif i in starts_geo_time:
+            starts_geo_time.remove(i)
+            new_geo_time_locs.append(len(out))
+            span, i = found_span_resolve(i, geo_time_locs, counts, span2tok, original)
+        # Check if event
+        elif i in starts_events:
+            starts_events.remove(i)
+            new_events_locs.append(len(out))
+            span, i = found_span_resolve(i, event_locs, counts, span2tok, original)
+        # Check if timex
+        elif i in starts_timexs:
+            starts_timexs.remove(i)
+            new_timex_locs.append(len(out))
+            span, i = found_span_resolve(i, timex_locs, counts, span2tok, original)
         else:
             span = span_resolve(original, span2tok, i, i+1)
             i += counts[span2tok[i]]
         out.append(span)
+
     out[-1] = out[-1].replace("</s>", "")
-    return out, new_loc1, new_loc2
+    return out, new_geo_ent_locs, new_geo_time_locs, new_events_locs, new_timex_locs

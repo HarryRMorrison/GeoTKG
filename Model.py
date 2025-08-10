@@ -1,5 +1,5 @@
 import torch
-from transformers import RobertaForTokenClassification, RobertaTokenizerFast, BartTokenizer, BartForConditionalGeneration
+from transformers import RobertaForTokenClassification, RobertaTokenizerFast, BartTokenizer, BartForConditionalGeneration, RobertaForSequenceClassification
 from pyrolite.util.time import Timescale
 from transformers import pipeline
 from spacy.matcher import Matcher
@@ -11,9 +11,9 @@ class Model:
         self.model = RobertaForTokenClassification.from_pretrained(model_path)
         self.task = model_path.split('\\')[-1]
 
-    def get_prediction(self, text, dim):
-        encodings=self.tokenizer(text, padding=True, truncation=True, return_tensors="pt")
-
+    def get_prediction(self, text, dim, is_split_into_words=False):
+        encodings=self.tokenizer(text, padding=True, truncation=True, return_tensors="pt", is_split_into_words=is_split_into_words)
+        self.model.eval()
         with torch.no_grad():
             outputs = self.model(**encodings)
             logits = outputs.logits
@@ -55,17 +55,18 @@ class NERModel(Model):
 
     @staticmethod
     def get_event_locations(predictions, bi_map={2:7}, return_types = False):
+        predictions = predictions[0]
         labels = ["B-DATE", "B-DURATION", "B-EVENT", "B-SET", "B-TIME", "I-DATE", "I-DURATION", "I-EVENT", "I-SET", "I-TIME"]
         locations = []
         types = []
         Bs = list(bi_map.keys())
         i = 0
-        while i < len(predictions[0]):
-            if predictions[0][i].item() in Bs:  # B-Event: 2
+        while i < len(predictions):
+            if predictions[i].item() in Bs:  # B-Event: 2
                 start = i
                 i += 1
-                ent_type = predictions[0][start].item()
-                types.append(labels[ent_type])
+                ent_type = predictions[start].item()
+                types.append(labels[ent_type][2:])
                 while i < len(predictions) and predictions[i] == bi_map[ent_type]:  # I-Event: 7
                     i += 1
                 locations.append([start, i])  # [start, end) format
@@ -79,10 +80,85 @@ class NERModel(Model):
     
 class TempRelModel(Model):
     def __init__(self, model_path):
-        super().__init__(model_path)
+        self.tokenizer = RobertaTokenizerFast.from_pretrained("scripts\\results\\TempRel")
+        self.model = RobertaForSequenceClassification.from_pretrained("scripts\\results\\TempRel\\checkpoint-10000")
+        self.task = model_path.split('\\')[-1]
 
-    def predict(self, text):
-        return self.get_prediction(text, 1)
+    def preprocessing(self, tokens, timex_locs, timex_types, geo_locs, event_locs, DCT):
+        ET_input_text, ET_order = [], []
+        EE_input_text, EE_order = [], []
+    
+        for i, (loc, value) in enumerate(timex_locs):
+            sample = tokens.copy()
+            time = sample.pop(loc)
+            sample.insert(loc, f"<timex VALUE={value} TYPE={timex_types[i]}>")
+            sample.insert(loc+1, time)
+            sample.insert(loc+2, "</timex>")
+            for e_loc in event_locs:
+                example = sample.copy()
+                offset = 2 if e_loc>loc else 0
+                event = example.pop(e_loc+offset)
+                example.insert(e_loc+offset, "<e>")
+                example.insert(e_loc+1+offset, event)
+                example.insert(e_loc+2+offset, "</e>")
+                example.insert(0, f"Document creation date is {DCT}")
+                ET_input_text.append(" ".join(example).split(" "))
+                print(ET_input_text[-1])
+                ET_order.append((loc, e_loc))
+        
+        for loc, (s_val, e_val) in geo_locs:
+            sample = tokens.copy()
+            time = sample.pop(loc)
+            sample.insert(loc, f"<timex VALUE={-1*((s_val+e_val)/2):.2f} TYPE=UNKOWN>")
+            sample.insert(loc+1, time)
+            sample.insert(loc+2, "</timex>")
+            for e_loc in event_locs:
+                example = sample.copy()
+                offset = 2 if e_loc>loc else 0
+                event = example.pop(e_loc+offset)
+                example.insert(e_loc+offset, "<e>")
+                example.insert(e_loc+1+offset, event)
+                example.insert(e_loc+2+offset, "</e>")
+                example.insert(0, f"Document creation date is {DCT}.")
+                ET_input_text.append(" ".join(example).split(" "))
+                print(ET_input_text[-1])
+                ET_order.append((loc, e_loc))
+
+        for e_loc1 in event_locs:
+            sample = tokens.copy()
+            event1 = sample.pop(e_loc1)
+            sample.insert(e_loc1, "<e1>")
+            sample.insert(e_loc1+1, event1)
+            sample.insert(e_loc1+2, "</e1>")
+            for e_loc2 in event_locs:
+                if e_loc1==e_loc2:
+                    continue
+                example = sample.copy()
+                offset = 2 if e_loc2>e_loc1 else 0
+                event2 = example.pop(e_loc2+offset)
+                example.insert(e_loc2+offset, "<e1>")
+                example.insert(e_loc2+1+offset, event2)
+                example.insert(e_loc2+2+offset, "</e1>")
+                EE_input_text.append(" ".join(example).split(" "))
+                print(EE_input_text[-1])
+                EE_order.append((e_loc1, e_loc2))
+        
+        self.ET_input = ET_input_text
+        self.EE_input = EE_input_text
+        self.ET_order = ET_order
+        self.EE_order = EE_order
+
+    def predict(self):
+        ET_preds = []
+        EE_preds = []
+
+        for ET_in, ET_locs in zip(self.ET_input, self.ET_order):
+            ET_preds.append((ET_locs, self.get_prediction(ET_in, -1, is_split_into_words=True).item()))
+
+        for EE_in, EE_locs in zip(self.EE_input, self.EE_order):
+            EE_preds.append((EE_locs, self.get_prediction(EE_in, -1, is_split_into_words=True).item()))
+
+        return ET_preds, EE_preds
 
 # Assume only geo_time_locs
 class TimexNormModel(Model):

@@ -13,6 +13,43 @@ CLEANDATA_PATH = os.path.join(BASE_DIR, "cleandata")
 
 E_E_SEPS = ["<e1>", "</e1>", "<e2>", "</e2>"]
 E_T_SEPS = ["<e>", "</e>", "<timex", "</timex>", "TIMEVAL=", "TYPE="]
+# Map labels (from TE3, MAVEN, MATRES, TBDense) -> (allen_label, flip_args?)
+ALLEN_MAP = {
+    # ---- Ordering / adjacency
+    "BEFORE": ("PRECEDES", False),     # TE3, MAVEN, MATRES, TBDense
+    "AFTER":  ("PRECEDES", True),      # flip -> BEFORE
+    "IBEFORE":("MEETS", False),        # TE3
+    "IAFTER": ("MEETS", True),         # TE3
+
+    # ---- Equality
+    "SIMULTANEOUS": ("EQUALS", False), # TE3, MAVEN, TBDense
+    "IDENTITY":     ("EQUALS", False), # TE3
+    "EQUAL":        ("EQUALS", False), # MATRES
+
+    # ---- Overlap
+    "OVERLAP":      ("OVERLAPS", False), # MAVEN
+
+    # ---- Starts / Finishes (boundary matches)
+    "BEGINS":   ("STARTS", False),     # TE3
+    "BEGUN_BY": ("STARTS", True),      # TE3 inverse
+    "BEGINS-ON":("STARTS", False),     # MAVEN
+
+    "ENDS":     ("FINISHES", False),   # TE3
+    "ENDED_BY": ("FINISHES", True),    # TE3 inverse
+    "ENDS-ON":  ("FINISHES", False),   # MAVEN
+
+    # ---- Containment (kept separate)
+    # DURING = A is inside B  (A during B)
+    "DURING":       ("DURING", False),     # TE3
+    "IS_INCLUDED":  ("DURING", False),     # TE3, TBDense
+
+    # DURING_INV flips to DURING by swapping
+    "DURING_INV":   ("DURING", True),      # TE3
+
+    # CONTAINS = A contains B  (inverse of DURING)
+    "INCLUDES":     ("CONTAINS", False),   # TE3
+    "CONTAINS":     ("CONTAINS", False),   # MAVEN
+}
 
 class Reader:
     def __init__(self, path : str):
@@ -35,18 +72,26 @@ class Reader:
         else:
             raise ValueError(f"Path {self.path} is not a directory.")
         return filepaths
-    
-    def to_json(data, intended_path : str):
-        return
 
-    def convert_to_dataset(data, method):
-        return
-
-    def get_label_list(data, label2id=True, id2label=True):
-        label_list = sorted(list(set([tag for sentence in data for tag in sentence['label']])))
+    def get_label_list(labels):
+        try:
+            label_list = sorted(list(set([tag for sentence in labels for tag in sentence['label']])))
+        except:
+            label_list = sorted(list(set([tag[0] for tag in labels])))
         label2id = {label: int(i) for i, label in enumerate(label_list)}
         id2label = {int(i): label for label, i in label2id.items()}
         return label_list, label2id, id2label
+    
+    # Allen’s 7 forward relations output:
+    # PRECEDES, MEETS, OVERLAPS, STARTS, DURING, FINISHES, EQUALS
+    def to_allen(label, m0, m1):
+        lab = (label or "").upper().strip()
+        if lab not in ALLEN_MAP or ALLEN_MAP[lab] is None:
+            raise ValueError(f"Unknown or unmapped label: {label}")
+        allen, flip = ALLEN_MAP[lab]
+        if flip:
+            m0, m1 = m1, m0
+        return allen, m0, m1
 
     def read(self, method : str, dataset : str, json_name: str):
 
@@ -148,126 +193,6 @@ class OzRockReader(Reader):
         OzRockReader.to_json(data=test, intended_path=test_json)
         return
 
-class MATRESReader(Reader):
-    def __init__(self, path):
-        super().__init__(path)
-
-    def read(self):
-        json_path = os.path.join(CLEANDATA_PATH, "E-E", "MATRES")
-
-        tempeval_files = []
-
-        for quality in ['Gold',"Training","Evaluation\\te3-platinum"]:
-            tempeval_files.extend(Reader(os.path.join(RAWDATA_PATH, "TempEval3", quality)).file_paths_to_read)
-
-        tempeval_files = np.array(tempeval_files)
-
-        data = []
-
-        for file in self.file_paths_to_read:
-            print(file)
-            info = np.loadtxt(file, dtype=str)
-            unique_files, indices = np.unique(info[:, 0], return_inverse=True)
-            num_files = len(unique_files)
-            indicator = 0
-            for timeml_file in unique_files:
-                indicator += 1
-                print(f"Processing file {indicator}/{num_files}")
-                path_mask = np.char.find(tempeval_files, timeml_file) != -1
-                path = tempeval_files[path_mask]
-                eiids = info[info[:,0]==timeml_file, -3:]
-                data.extend(MATRESReader.TLINK_event_event_finder(path[0], eiids))
-        
-        data = TimeMLReader.convert_to_dataset(data).shuffle(seed=42).train_test_split(test_size=0.2, seed=42)
-        test = data["test"]
-        train = data["train"].train_test_split(test_size=0.1, seed=42)
-        data=None
-        val = train["test"]
-        train = train["train"]
-        
-        test.to_json(os.path.join(json_path, "test.json"))
-        train.to_json(os.path.join(json_path, "train.json"))
-        val.to_json(os.path.join(json_path, "eval.json"))
-
-
-        
-        return
-
-    @staticmethod
-    def TLINK_event_event_finder(path, eiids):
-        tree = ET.parse(path)
-        root = tree.getroot()
-        text = root.find('TEXT')
-        dct = root.find('DCT').find('TIMEX3')
-
-        nlp = spacy.load("en_core_web_sm")
-        seps = ["[E1S]","[E1E]","[E2S]","[E2E]"]
-        [nlp.tokenizer.add_special_case(sep, [{ORTH: sep}]) for sep in seps]
-        nlp.add_pipe("sentencizer")
-
-        article = []
-        locs = {}
-        dist = {}
-        order = []
-
-        for node in text.iter():
-            tokens = nlp(node.text.replace("\n\n"," ").lstrip())
-            if node.tag == "EVENT":
-                locs[node.attrib["eid"]] = len(article)
-                dist[node.attrib["eid"]] = len(tokens)
-                order.append(node.attrib["eid"])
-            article.extend(tokens)
-            if node.tail:
-                article.extend(nlp(node.tail.replace("\n\n"," ").lstrip()))
-
-        article = [str(token) for token in article]
-        data = []
-
-        for eiid1, eiid2, relation in eiids:
-            para = article.copy()
-            try:
-                eiid1 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid1)}"]').attrib["eventID"]
-                eiid2 = root.find(f'MAKEINSTANCE[@eiid="ei{str(eiid2)}"]').attrib["eventID"]
-            except AttributeError:
-                continue
-
-            try:
-                ordering = order.index(eiid1) < order.index(eiid2)
-            # Labeling error 'e1000036' in file 5 and so on
-            except ValueError:
-                continue
-
-            try:
-                if ordering:
-                    para.insert(locs[eiid1], seps[0])
-                    para.insert(locs[eiid1]+dist[eiid1]+1, seps[1])
-                    para.insert(locs[eiid2]+2, seps[2])
-                    para.insert(locs[eiid2]+dist[eiid2]+3, seps[3])
-                else:
-                    para.insert(locs[eiid2], seps[2])
-                    para.insert(locs[eiid2]+dist[eiid2]+1, seps[3])
-                    para.insert(locs[eiid1]+2, seps[0])
-                    para.insert(locs[eiid1]+dist[eiid1]+3, seps[1])                 
-            except KeyError:
-                continue
-            para = nlp(" ".join(para))
-            sep_found = 0
-            trimmed = []
-
-            for sent in list(para.sents):
-                sent = [str(token) for token in sent]
-                if any(sep in sent for sep in seps):
-                    trimmed.extend(sent)
-                    sep_found += sum(sent.count(sep) for sep in seps)
-                    if sep_found == 4:
-                        break
-                elif sep_found > 0:
-                    trimmed.extend(sent)
-
-            data.append({'tokens':trimmed, 'label':[relation]})
-            
-        return data
-
 class MAVENReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
@@ -307,6 +232,7 @@ class MAVENReader(Reader):
         tokens, labels = [], []
 
         for rel_type in relations:
+            orig_rel = rel_type
             for relation in relations[rel_type]:
                 if relation[0].partition("_")[0] == "EVENT":
                     p0 = events[relation[0]]
@@ -323,6 +249,7 @@ class MAVENReader(Reader):
                 seps = E_E_SEPS if parts=="EE" else E_T_SEPS
                 for m0 in p0:
                     for m1 in p1:
+                        rel_type, m0, m1 = Reader.to_allen(orig_rel, m0, m1)
                         text = deepcopy(sents)
                         if parts[0] == "E":
                             sep0_s, sep0_e = seps[0], seps[1]
@@ -344,10 +271,16 @@ class MAVENReader(Reader):
                         text[m1["sent_id"]].insert(m1["offset"][1] + offset, sep1_e)
                         text[m1["sent_id"]].insert(m1["offset"][0] + offset, sep1_s)
 
-                        text = text[ min(m0["sent_id"], m1["sent_id"]) : max(m0["sent_id"], m1["sent_id"])+1 ]
+                        #text = text[ min(m0["sent_id"], m1["sent_id"]) : max(m0["sent_id"], m1["sent_id"])+1 ]
+                        if m0["sent_id"] < m1["sent_id"]:
+                            text = text[m0["sent_id"]] + ['<sep>'] + text[m1["sent_id"]]
+                        elif m0["sent_id"] == m1["sent_id"]:
+                            text = text[m0["sent_id"]]
+                        else:
+                            text = text[m1["sent_id"]] + ['<sep>'] + text[m0["sent_id"]]
                         
-                        tokens.append(sum(text, []))
-                        labels.append([rel_type])
+                        tokens.append(text)
+                        labels.append(rel_type)
 
         return tokens, labels
     
@@ -362,6 +295,10 @@ class MAVENReader(Reader):
         labels = [["O" for token in sent] for sent in sents]
 
         for time in timexs:
+            if time['type'] == "PREPOSTEXP":
+                continue
+            if time['type'] == "QUANTIFIER":
+                time['type'] = "SET"
             replace = f"B-{time['type']}"
             for i in range(time["offset"][0], time["offset"][1]):
                 labels[time["sent_id"]][i] = replace
@@ -377,19 +314,13 @@ class MAVENReader(Reader):
 class TimeMLReader(Reader):
     
     @staticmethod
-    def get_temprel(file):
-        tree = ET.parse(file)
-        root = tree.getroot()
+    def get_doc_and_loc(root, eid2eiid):
         doc = root.find('TEXT')
         dct = root.find('DCT').find('TIMEX3')
-        eid2eiid = {mi.attrib.get('eventID'):mi.attrib.get('eiid') for mi in root.findall('MAKEINSTANCE')}
-        EElinks = root.findall('TLINK[@relatedToEventInstance][@eventInstanceID]')
-        ETlinks = root.findall('TLINK[@relatedToTime][@eventInstanceID]')
-        
-        text, events, timexs, out, labels = [], {}, {}, [], []
+        text, events, timexs, sents, sent_num = [], {}, {}, {}, 0
         text.extend(["Document creation date is ", dct.attrib.get('value')])
         timexs['t0'] = {'value':dct.attrib.get('value'), 'type':dct.attrib.get('type'), 'offset':(1, len(text))}
-
+        text.append(".")
         for elem in doc.iter():
             start = len(text)
             text.append(elem.text.replace("\n",""))
@@ -406,50 +337,135 @@ class TimeMLReader(Reader):
                     'type': elem.attrib.get('type'),
                     'offset': (start, len(text))
                 }
+            # elif elem.tail.count("\n") >= 2:
+            #     sent_end = elem.tail.split("\n\n")
+            #     text.append(sent_end[0])
+            #     sents[sent_num] = len(text)
+            #     text.append(sent_end[1:])
+            # else:
             text.extend(elem.tail.split("\n"))
-
-        for EElink in EElinks:
+        return text, events, timexs, sents
+    
+    @staticmethod
+    def get_time_seps(value, type):
+        return E_T_SEPS[0], E_T_SEPS[1], f"{E_T_SEPS[2]} {E_T_SEPS[4]}{value} {E_T_SEPS[5]}{type}>", E_T_SEPS[3]
+    
+    @staticmethod
+    def get_event_seps(value, type):
+        return E_E_SEPS[0], E_E_SEPS[1], E_E_SEPS[2], E_E_SEPS[3]
+    
+    @staticmethod
+    def get_event(eid, events):
+        try:
+            m0 = events[eid]
+        except KeyError:
             try:
-                m0 = events[EElink.attrib.get("eventInstanceID")]
-                m1 = events[EElink.attrib.get("relatedToEventInstance")]
+                m0 = events["ei10000"+eid[-2:]]
             except KeyError:
+                try:
+                    m0 = events["ei"+eid[-2:]]
+                except KeyError:
+                    try:
+                        m0 = events["ei100000"+eid[-1:]]
+                    except KeyError:
+                        return 0
+        return m0
+
+    
+    @staticmethod
+    def link_to_input(sep_maker, text, links, events, timexs=None):
+        out, labels = [], []
+        if timexs is None:
+            tlink_type = "relatedToEventInstance"
+        else:
+            tlink_type = "relatedToTime"
+
+        for link in links:
+            if link["relType"] in ["NONE","VAGUE"]:
                 continue
 
-            sample = deepcopy(text)
+            m0 = TimeMLReader.get_event(link['eventInstanceID'], events)
+            if m0==0:
+                continue
 
-            sample.insert(m0["offset"][1], E_E_SEPS[1])
-            sample.insert(m0["offset"][0], E_E_SEPS[0])
+            if tlink_type == "relatedToTime":
+                m1 = timexs[link[tlink_type]]
+            else:
+                m1 = TimeMLReader.get_event(link[tlink_type], events)
+                if m1==0:
+                    continue
+            
+            rel_type, m0, m1 = Reader.to_allen(link["relType"], m0, m1)
+
+            sample = deepcopy(text)
+            try:
+                sep0s, sep0e, sep1s, sep1e = sep_maker(1 if timexs is None else m1["value"], 1 if timexs is None else m1["type"])
+            except KeyError:
+                sep1s, sep1e, sep0s, sep0e = sep_maker(1 if timexs is None else m0["value"], 1 if timexs is None else m0["type"])
+
+            sample.insert(m0["offset"][1], sep0e)
+            sample.insert(m0["offset"][0], sep0s)
 
             offset = 2 if m0["offset"][0] < m1["offset"][0] else 0
 
-            sample.insert(m1["offset"][1] + offset, E_E_SEPS[3])
-            sample.insert(m1["offset"][0] + offset, E_E_SEPS[2])
+            sample.insert(m1["offset"][1] + offset, sep1e)
+            sample.insert(m1["offset"][0] + offset, sep1s)
 
-            sample = sample[max(0, min(m0["offset"][0], m1["offset"][0])-10) : min(len(sample), max(m0["offset"][1], m1["offset"][1])+10)]
+            # for sent_start in sents:
+            #     if m0["offset"][0] <= sents[sent_start]:
+            #         m0_sents_lower = max(0, sents[sent_start-1])
+            #         m0_sents_upper = min(len(sample), sents[sent_start+1])
+            #     if m1["offset"][0] <= sents[sent_start]:
+            #         m1_sents_lower = max(0, sents[sent_start-1])
+            #         m1_sents_upper = min(len(sample), sents[sent_start+1])
+
+            m0_start = 0 if tlink_type=="relatedToTime" and link["relatedToTime"]=="t0" else max(0, m0['offset'][0]-20)
+            m0_end = min(len(sample), m0['offset'][1]+20)
+            m1_start = 0 if tlink_type=="relatedToTime" and link["relatedToTime"]=="t0" else max(0, m1['offset'][0]-20)
+            m1_end = min(len(sample), m1['offset'][1]+20)
+
+            if m0_start <= m1_end and m1_start <= m0_end:
+                sample = sample[min(m0_start, m1_start):max(m0_end, m1_end)]
+            elif m0["offset"][0] < m1["offset"][0]:
+                sample = sample[m0_start: m0_end] + ['<sep>'] + sample[m1_start: m1_end]
+            else:
+                sample = sample[m1_start: m1_end] + ['<sep>'] + sample[m0_start: m0_end]   
             out.append(" ".join(sample).split(" "))
-            labels.append([EElink.attrib.get("relType")])
+            labels.append(rel_type)
+        return out, labels
 
-        for ETlink in ETlinks:
-            try:
-                m0 = events[ETlink.attrib.get("eventInstanceID")]
-                m1 = timexs[ETlink.attrib.get("relatedToTime")]
-            except KeyError:
-                continue
+    @staticmethod
+    def get_temprel(file, pre_eiids=[]):
+        tree = ET.parse(file)
+        root = tree.getroot()
+        out, labels = [], []
+        eid2eiid = {mi.attrib.get('eventID'):mi.attrib.get('eiid') for mi in root.findall('MAKEINSTANCE')}
+        if len(pre_eiids) > 0:
+            EElinks = [{"eventInstanceID":"ei"+eiid1, 
+                        "relatedToEventInstance":"ei"+eiid2, 
+                        "relType":link} 
+                        for eiid1, eiid2, link in pre_eiids]
+            text, events, timexs, sents = TimeMLReader.get_doc_and_loc(root, eid2eiid)
+            ee_inputs, ee_labels = TimeMLReader.link_to_input(TimeMLReader.get_event_seps, text, EElinks, events)
+            out.extend(ee_inputs)
+            labels.extend(ee_labels)
+        else:
+            EElinks = [{"eventInstanceID":link.attrib.get("eventInstanceID"), 
+                        "relatedToEventInstance":link.attrib.get("relatedToEventInstance"), 
+                        "relType":link.attrib.get("relType")} 
+                        for link in root.findall('TLINK[@relatedToEventInstance][@eventInstanceID]')]
+            ETlinks = [{"eventInstanceID":link.attrib.get("eventInstanceID"), 
+                        "relatedToTime":link.attrib.get("relatedToTime"), 
+                        "relType":link.attrib.get("relType")} 
+                        for link in root.findall('TLINK[@relatedToTime][@eventInstanceID]')]
+            text, events, timexs, sents = TimeMLReader.get_doc_and_loc(root, eid2eiid)
+            ee_inputs, ee_labels = TimeMLReader.link_to_input(TimeMLReader.get_event_seps, text, EElinks, events)
+            et_inputs, et_labels = TimeMLReader.link_to_input(TimeMLReader.get_time_seps, text, ETlinks, events, timexs)
+            out.extend(ee_inputs)
+            out.extend(et_inputs)
+            labels.extend(ee_labels)
+            labels.extend(et_labels)
 
-            sample = deepcopy(text)
-
-            sample.insert(m0["offset"][1], E_T_SEPS[1])
-            sample.insert(m0["offset"][0], E_T_SEPS[0])
-
-            offset = 2 if m0["offset"][0] < m1["offset"][0] else 0
-
-            sample.insert(m1["offset"][1] + offset, E_T_SEPS[3])
-            sample.insert(m1["offset"][0] + offset, f"{E_T_SEPS[2]} {E_T_SEPS[4]}{m1['value']} {E_T_SEPS[5]}{m1['type']}>")
-
-            cut_s = 0 if ETlink.attrib.get("relatedToTime")=="t0" else max(0, min(m0["offset"][0], m1["offset"][0])-10)
-            sample = sample[cut_s : min(len(sample), max(m0["offset"][1], m1["offset"][1])+10)]
-            out.append(" ".join(sample).split(" "))
-            labels.append([ETlink.attrib.get("relType")])
         return out, labels
 
     @staticmethod
@@ -579,16 +595,16 @@ class TempEval3Reader(TimeMLReader):
     def __init__(self, path):
         super().__init__(path)
 
-    def read(self, method):
+    def read(self, method, dataset_name="TempEval3"):
         if method == "TempRel":
             extractor = TimeMLReader.get_temprel
-            json_path = os.path.join(CLEANDATA_PATH, "TempRel", "TempEval3")
+            json_path = os.path.join(CLEANDATA_PATH, "TempRel", dataset_name)
         elif method == "BIO":
             extractor = TimeMLReader.get_bio
-            json_path = os.path.join(CLEANDATA_PATH, "BIO", "TempEval3")
+            json_path = os.path.join(CLEANDATA_PATH, "BIO", dataset_name)
         elif method == "Normalise":
             extractor = TimeMLReader.get_bio
-            json_path = os.path.join(CLEANDATA_PATH, "normalised", "TempEval3")
+            json_path = os.path.join(CLEANDATA_PATH, "normalised", dataset_name)
         else:
             raise ValueError("Choose either TempRel, BIO, or Normalise as a method")
         
@@ -610,6 +626,49 @@ class TempEval3Reader(TimeMLReader):
         data2upload = Dataset.from_dict({"tokens":ins, "label":labs})
         data2upload.to_json(os.path.join(json_path, current_folder+".json"))
 
+class MATRESReader(TimeMLReader):
+    def __init__(self, path):
+        super().__init__(path)
+
+    def read(self):
+        json_path = os.path.join(CLEANDATA_PATH, "TempRel", "MATRES")
+
+        name_conv = {"aquaint.txt":"eval.json", "platinum.txt":"test.json", "timebank.txt":"train.json"}
+      
+        tempeval_files = np.array(Reader(os.path.join(RAWDATA_PATH, "TempEval3")).file_paths_to_read)
+
+        ins, labs = [], []
+
+        for file in self.file_paths_to_read:
+            print(file)
+            
+            info = np.loadtxt(file, dtype=str)
+            
+            unique_files, indices = np.unique(info[:, 0], return_inverse=True)
+            num_files = len(unique_files)
+            
+            for i, timeml_file in enumerate(unique_files):
+                print(f"Processing file {i+1}/{num_files}")
+                
+                path_mask = np.char.find(tempeval_files, timeml_file) != -1
+                
+                path = tempeval_files[path_mask]
+                eiids = info[info[:,0]==timeml_file, -3:]
+
+                input, lab = TimeMLReader.get_temprel(path[0], eiids)
+                ins.extend(input)
+                labs.extend(lab)
+                data = Dataset.from_dict({"tokens":ins, "label":labs})        
+            data.to_json(os.path.join(json_path, name_conv[file.split("\\")[-1]]))
+        return
+
+class TBDenseReader(TempEval3Reader):
+    def __init__(self, path):
+        super().__init__(path)
+    
+    def read(self):
+        super().read(method="TempRel", dataset_name="TBDense")
+        
 
 def id_token_labels(dataset, label2id):
     def change_id(row):
@@ -636,24 +695,35 @@ def obtain_label_list(dataset):
     return Reader.get_label_list(dataset)
 
 def obtain_combined_dataset(dataset_names, method):
-    train = []
-    val = []
-    test = []
+    data = []
     for dataset_name in dataset_names:
-        train.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"])
-        test.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"])
-        try:
-            val.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"])
-        except:
-            continue
-    train = concatenate_datasets(train).shuffle(seed=42)
-    val = val[0]
-    test = concatenate_datasets(test).shuffle(seed=42)
-    return DatasetDict({"test": test, "train":train, "eval": val})
+        for json_name in ["train.json","test.json","eval.json"]:
+            if dataset_name == "MAVEN" and json_name == "test.json":
+                continue
+            data.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, json_name))["train"])
+    data = concatenate_datasets(data)
+    label_list, label2id, id2label = Reader.get_label_list(data["label"])
+    ids = [label2id[lab[0]] for lab in data["label"]]
+    data = data.add_column("ids", ids).class_encode_column("ids")
+    data = data.train_test_split(test_size=0.2, shuffle=True, seed=42, stratify_by_column="ids")
+    train = data["train"]
+    test = data["test"].remove_columns("ids")
+    data = None
+    train = train.train_test_split(test_size=0.1, shuffle=True, seed=42, stratify_by_column="ids")
+    val = train["test"].remove_columns("ids")
+    train = train["train"].remove_columns("ids")
+    return DatasetDict({"test": test, "train":train, "eval": val}), label_list, label2id, id2label
 
 if __name__ == "__main__":
+    te = TBDenseReader("rawdata\\TBDense")
+    te.read()
+
     te = TempEval3Reader("rawdata\\TempEval3")
     te.read("TempRel")
 
-    # te = MAVENReader("rawdata\\MAVEN_ERE")
-    # te.read("TempRel")
+    te = MATRESReader("rawdata\\MATRES")
+    te.read()
+
+    te = MAVENReader("rawdata\\MAVEN_ERE")
+    te.read("TempRel")
+    # te.read("BIO")

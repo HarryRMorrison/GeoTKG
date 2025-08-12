@@ -16,10 +16,13 @@ E_T_SEPS = ["<e>", "</e>", "<timex", "</timex>", "TIMEVAL=", "TYPE="]
 # Map labels (from TE3, MAVEN, MATRES, TBDense) -> (allen_label, flip_args?)
 ALLEN_MAP = {
     # ---- Ordering / adjacency
-    "BEFORE": ("PRECEDES", False),     # TE3, MAVEN, MATRES, TBDense
-    "AFTER":  ("PRECEDES", True),      # flip -> BEFORE
-    "IBEFORE":("MEETS", False),        # TE3
-    "IAFTER": ("MEETS", True),         # TE3
+    # BEFORE side
+    "BEFORE":   ("BEFORE", False),
+    "IBEFORE":  ("BEFORE", False),  # immediate before still counts as BEFORE
+    
+    # AFTER side (flip to BEFORE if you want consistent arg order)
+    "AFTER":    ("AFTER", False),
+    "IAFTER":   ("AFTER", False),    # immediate after still counts as AFTER
 
     # ---- Equality
     "SIMULTANEOUS": ("EQUALS", False), # TE3, MAVEN, TBDense
@@ -74,10 +77,10 @@ class Reader:
         return filepaths
 
     def get_label_list(labels):
-        try:
+        if type(labels[0]) == list:
             label_list = sorted(list(set([tag for sentence in labels for tag in sentence['label']])))
-        except:
-            label_list = sorted(list(set([tag[0] for tag in labels])))
+        else:
+            label_list = sorted(list(set([tag for tag in labels])))
         label2id = {label: int(i) for i, label in enumerate(label_list)}
         id2label = {int(i): label for label, i in label2id.items()}
         return label_list, label2id, id2label
@@ -703,7 +706,7 @@ def obtain_combined_dataset(dataset_names, method):
             data.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, json_name))["train"])
     data = concatenate_datasets(data)
     label_list, label2id, id2label = Reader.get_label_list(data["label"])
-    ids = [label2id[lab[0]] for lab in data["label"]]
+    ids = [label2id[lab] for lab in data["label"]]
     data = data.add_column("ids", ids).class_encode_column("ids")
     data = data.train_test_split(test_size=0.2, shuffle=True, seed=42, stratify_by_column="ids")
     train = data["train"]

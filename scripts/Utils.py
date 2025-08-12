@@ -1,5 +1,6 @@
 import torch
-from seqeval.metrics import f1_score, precision_score, recall_score, classification_report
+#from seqeval.metrics import f1_score, precision_score, recall_score, classification_report
+from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import f1_score as sk_f1_score
@@ -103,14 +104,14 @@ class NER_Utils(Utils):
         ]
         return super().compute_metrics(true_predictions, true_labels, "micro")
     
-class TempRel_Utils(Utils):
+class TempRel_Utils:
     def __init__(self, tokenizer, label2id, id2label):
         self.tokenizer = tokenizer
         self.label2id = label2id
         self.id2label = id2label
     
     def encode_labels(self, example):
-        example["label"] = self.label2id[example["label"][0]]
+        example["label"] = self.label2id[example["label"]]
         return example
 
     def tokenize_datasets(self, datasets):
@@ -123,10 +124,27 @@ class TempRel_Utils(Utils):
     
     def compute_metrics(self, eval_prediction):
         predictions, ids = eval_prediction
-        predictions = np.argmax(predictions, axis=1)
-        true_labels = [[self.id2label[id]] for id in ids]
-        true_preds = [[self.id2label[pred]] for pred in predictions]
-        return super().compute_metrics(true_preds, true_labels, "micro")
+        predictions = np.argmax(predictions, axis=-1)
+        true_labels = [self.id2label[id] for id in ids]
+        true_preds = [self.id2label[pred] for pred in predictions]
+        return {
+            "precision": precision_score(true_labels, true_preds, average="micro"),
+            "recall": recall_score(true_labels, true_preds, average="micro"),
+            "f1": f1_score(true_labels, true_preds, average="micro"),
+        }
+    
+    def classification_report(self, test_set):
+        encodings=self.tokenizer(test_set["tokens"], padding=True, truncation=True, return_tensors="pt", is_split_into_words=True)
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(**encodings)
+            logits = outputs.logits
+            predictions = torch.argmax(logits, dim=-1)
+
+        preds = [self.id2label[pred.item()] for pred in list(predictions)]
+        ids = [self.id2label[lab] for lab in test_set["label"]]
+
+        print(classification_report(ids, preds))
     
 class TimexNorm_Utils(Utils):
     def __init__(self, tokenizer):

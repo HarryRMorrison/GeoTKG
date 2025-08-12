@@ -374,7 +374,6 @@ class TimeMLReader(Reader):
                         return 0
         return m0
 
-    
     @staticmethod
     def link_to_input(sep_maker, text, links, events, timexs=None):
         out, labels = [], []
@@ -594,6 +593,40 @@ class TimeMLReader(Reader):
     
         return data       
     
+    @staticmethod
+    def get_quintuples(filepath):
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        out = []
+        eiid2eid = {mi.attrib.get('eiid'):mi.attrib.get('eventID') for mi in root.findall('MAKEINSTANCE')}
+        etlinks = {}
+        for link in root.findall('TLINK[@relatedToTime][@eventInstanceID]'):
+            eid = eiid2eid[link.attrib.get("eventInstanceID")]
+            if eid in etlinks:
+                etlinks[eid].append({"rel":link.attrib.get("relType"), "tid":link.attrib.get("relatedToTime")})
+            else:
+                etlinks[eid] = [{"rel":link.attrib.get("relType"), "tid":link.attrib.get("relatedToTime")}]
+        eelinks = [{"eid1": eiid2eid[link.attrib.get("eventInstanceID")], "rel":link.attrib.get("relType"), "eid2":eiid2eid[link.attrib.get("relatedToEventInstance")]} for link in root.findall('TLINK[@relatedToEventInstance][@eventInstanceID]')]
+        tids = {elem.attrib.get("tid"):elem.text for elem in root.findall('TIMEX')}
+        eids = {elem.attrib.get("eid"):elem.text for elem in root.findall('EVENT')}
+
+        for inst in eelinks:
+            e1 = inst["eid"]
+            e2 = inst["eid2"]
+
+            label, e1, e2 = Reader.to_allen(inst["rel"], e1, e2)
+
+            # redo to make temporal transistivity hold
+            t1 = etlinks[e1] if e1 in etlinks else None
+            t2 = etlinks[e2] if e2 in etlinks else None
+
+            if t1 is None and t2 is None:
+                continue
+
+            out.append((eids[e1], label, eids[e2], t1, t2))
+
+        return out
+            
 class TempEval3Reader(TimeMLReader):
     def __init__(self, path):
         super().__init__(path)
@@ -671,7 +704,13 @@ class TBDenseReader(TempEval3Reader):
     
     def read(self):
         super().read(method="TempRel", dataset_name="TBDense")
-        
+
+class ESCReader(Reader):
+    def __init__(self, path):
+        super().__init__(path)
+
+    def read(self, method):
+        return      
 
 def id_token_labels(dataset, label2id):
     def change_id(row):
@@ -679,7 +718,6 @@ def id_token_labels(dataset, label2id):
         return row
     return dataset.map(change_id) 
 
-# Could change later to make exact train, test, eval json files
 def obtain_dataset(dataset_name, method):
     train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
     val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]

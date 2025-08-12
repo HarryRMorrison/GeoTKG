@@ -19,7 +19,7 @@ class GeoTKGPipeline:
             sentences.append(sent.text)
         return sentences
 
-    def fit(self, unresolved_text):
+    def pred(self, unresolved_text):
         resolved_text = self.CorefResolver(unresolved_text)
         print(resolved_text)
 
@@ -44,9 +44,23 @@ class GeoTKGPipeline:
 
         #   2.2 Predicting normalised times
         cal_times, geo_times = self.TimeNorm.predict()
+        print("------- Reconstructed Text --------")
+        print(text)
+        print("----- Detected Calender Times -----")
+        for loc, t_type in zip(cal_times, timex_types):
+            print(f"LOC: {loc[0]}, TEXT: {text[loc[0]]}, VAL: {loc[1]}, TYPE: {t_type}")
 
-        for loc in [cal_times, geo_times]:
-            print(loc)
+        print("------- Detected Geo Times --------")
+        for loc in geo_times:
+            print(f"LOC: {loc[0]}, TEXT: {text[loc[0]]}, VAL: {loc[1]}")
+
+        print("------ Detected Geo Entities ------")
+        for loc in geo_entity_locs:
+            print(f"LOC: {loc}, TEXT: {text[loc]}")
+
+        print("--------- Detected Events ---------")
+        for loc in event_locs:
+            print(f"LOC: {loc}, TEXT: {text[loc]}")
 
         # sentences = GeoTKGPipeline.spacify(resolved_text)
         # for sent in sentences:
@@ -69,17 +83,6 @@ class GeoTKGPipeline:
 
             # for (e1,e2),rel in EE_preds:
             #     print(text[e1],id2label[rel],text[e2])
-
-        # print(text)
-        # print(timex_types)
-
-        # for loc in [geo_ent_locs, geo_time_locs, events_locs, timex_locs]:
-        #     for i in loc:
-        #         print(text[i])
-        #     print("------------")
-
-        # print(timex_types, cal_times, geo_times)
-
         return
 
 if __name__=="__main__":
@@ -97,6 +100,30 @@ if __name__=="__main__":
     #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project started, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
     #text = "In 2019, BHP found a rock formation which they dated to the Archean."
-    model.fit(text)
+    model.pred(text)
+
+'''
+The Henry River Project began on the south - western limb of Perth in 2004 . A year later , The Henry River Project discoverd a quartz vein formation . a quartz vein formation was dated to the Archean . Other projects have found gold dated to the Jurassic or ~1000ma .
+------- Reconstructed Text --------
+['The', 'Henry', 'River', 'Project', 'began', 'on', 'the', 'south', '-', 'western', 'limb', 'of', 'Perth', 'in', '2004', '.', 'A year', 'later', ',', 'The', 'Henry', 'River', 'Project', 'discoverd', 'a', 'quartz vein', 'formation', '.', 'a', 'quartz vein', 'formation', 'was', 'dated', 'to', 'the', 'Archean', '.', 'Other', 'projects', 'have', 'found', 'gold', 'dated', 'to', 'the', 'Jurassic', 'or', '~1000ma', '.']
+----- Detected Calender Times -----
+LOC: 14, TEXT: 2004, VAL: 2004, TYPE: DATE
+LOC: 16, TEXT: A year, VAL: P1Y, TYPE: DURATION
+------- Detected Geo Times --------
+LOC: 35, TEXT: Archean, VAL: (4600.0, 2500.0)
+LOC: 45, TEXT: Jurassic, VAL: (201.4, 145.0)
+LOC: 47, TEXT: ~1000ma, VAL: (1000, None)
+------ Detected Geo Entities ------
+LOC: 12, TEXT: Perth
+LOC: 25, TEXT: quartz vein
+LOC: 29, TEXT: quartz vein
+LOC: 41, TEXT: gold
+--------- Detected Events ---------
+LOC: 4, TEXT: began
+LOC: 23, TEXT: discoverd
+LOC: 32, TEXT: dated
+LOC: 40, TEXT: found
+LOC: 42, TEXT: dated
+'''
 
 

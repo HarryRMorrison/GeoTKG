@@ -1,62 +1,36 @@
 import torch
-#from seqeval.metrics import f1_score, precision_score, recall_score, classification_report
-from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
+from seqeval.metrics import f1_score, precision_score, recall_score, classification_report
+#from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import f1_score as sk_f1_score
 import numpy as np
 
 class Utils:
-    def __init__(self, tokenizer, label_list):
+    def __init__(self, tokenizer, label2id, id2label):
         self.tokenizer = tokenizer
-        self.label_list = label_list
+        self.label2id = label2id
+        self.id2label = id2label
     
-    def compute_metrics(self, true_predictions, true_labels, average):
-        return {
-            "precision": precision_score(true_labels, true_predictions, average=average),
-            "recall": recall_score(true_labels, true_predictions, average=average),
-            "f1": f1_score(true_labels, true_predictions, average=average),
-        }
+    def compute_metrics(self, eval_prediction):
+        pass
     
     def tokenize_datasets(self, datasets):
         pass
-
-    def classification_rep(self, predictions, labels, average, encodings):
-        true_labels = []
-        predicted_labels = []
-        encodings.to("cpu")
-        for i in range(len(predictions)):
-            pred_ids = predictions[i].cpu().numpy()
-            label_ids = labels[i]
-
-            # Match only actual tokens (ignore padding)
-            word_ids = encodings.word_ids(batch_index=i)
-            aligned_preds = []
-            aligned_labels = []
-
-            previous_word_idx = None
-            for j, word_idx in enumerate(word_ids):
-                if word_idx is None or word_idx == previous_word_idx:
-                    continue  # skip subwords and special tokens
-                aligned_preds.append(self.label_list[pred_ids[j]])
-                aligned_labels.append(self.label_list[label_ids[word_idx]])
-                previous_word_idx = word_idx
-
-            predicted_labels.append(aligned_preds)
-            true_labels.append(aligned_labels)
-        print(classification_report(true_labels, predicted_labels, average=average))
         
-
 class NER_Utils(Utils):
-    def __init__(self, tokenizer, label_list):
-        super().__init__(tokenizer, label_list)
+    def __init__(self, tokenizer, label2id, id2label):
+        super().__init__(tokenizer, label2id, id2label)
 
     def BIO_tokenize_and_align_labels(self, samples):
         tokenized_inputs = self.tokenizer(
             samples["tokens"], truncation=True, is_split_into_words=True, padding=True
         )
-        labels = []
-        for i, label in enumerate(samples["label"]):
+        all_label_ids = []
+        for i, label_seq in enumerate(samples["label"]):
+            label_seq = [
+                self.label2id[l] if isinstance(l, str) else int(l)
+                for l in label_seq
+            ]
             word_ids = tokenized_inputs.word_ids(batch_index=i)
             previous_word_idx = None
             label_ids = []
@@ -64,12 +38,12 @@ class NER_Utils(Utils):
                 if word_idx is None:
                     label_ids.append(-100)
                 elif word_idx != previous_word_idx:
-                    label_ids.append(label[word_idx])
+                    label_ids.append(label_seq[word_idx])
                 else:
                     label_ids.append(-100)
                 previous_word_idx = word_idx
-            labels.append(label_ids)
-        tokenized_inputs["labels"] = labels
+            all_label_ids.append(label_ids)
+        tokenized_inputs["labels"] = all_label_ids
         return tokenized_inputs
 
     def data_collator(self, data):
@@ -88,64 +62,32 @@ class NER_Utils(Utils):
         }
 
     def tokenize_datasets(self, datasets):
-        return datasets.map(self.BIO_tokenize_and_align_labels, batched=True)
+        datasets = datasets.map(self.BIO_tokenize_and_align_labels, batched=True)
+        if "label" in datasets["train"].column_names:
+            datasets = datasets.remove_columns("label")
+        if "tokens" in datasets["train"].column_names:
+            datasets = datasets.remove_columns("tokens")
+        return datasets
     
     def compute_metrics(self, eval_prediction):
         predictions, labels = eval_prediction
         predictions = np.argmax(predictions, axis=2)
         # Remove ignored index (special tokens)
         true_predictions = [
-            [self.label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+            [self.id2label[p] for (p, l) in zip(prediction, label) if l != -100]
             for prediction, label in zip(predictions, labels)
         ]
         true_labels = [
-            [self.label_list[l] for (p, l) in zip(prediction, label) if l != -100]
+            [self.id2label[l] for (p, l) in zip(prediction, label) if l != -100]
             for prediction, label in zip(predictions, labels)
         ]
-        return super().compute_metrics(true_predictions, true_labels, "micro")
-    
-class TempRel_Utils:
-    def __init__(self, tokenizer, label2id, id2label):
-        self.tokenizer = tokenizer
-        self.label2id = label2id
-        self.id2label = id2label
-    
-    def encode_labels(self, example):
-        example["label"] = self.label2id[example["label"]]
-        return example
-
-    def tokenize_datasets(self, datasets):
-        datasets = datasets.map(self.TempRel_tokenize, batched=True)
-        datasets = datasets.map(self.encode_labels)
-        return datasets
-    
-    def TempRel_tokenize(self, samples):
-        return self.tokenizer(samples["tokens"], truncation=True, is_split_into_words=True, padding=True, return_tensors="pt")
-    
-    def compute_metrics(self, eval_prediction):
-        predictions, ids = eval_prediction
-        predictions = np.argmax(predictions, axis=-1)
-        true_labels = [self.id2label[id] for id in ids]
-        true_preds = [self.id2label[pred] for pred in predictions]
         return {
-            "precision": precision_score(true_labels, true_preds, average="micro"),
-            "recall": recall_score(true_labels, true_preds, average="micro"),
-            "f1": f1_score(true_labels, true_preds, average="micro"),
+            "precision": precision_score(true_labels, true_predictions),
+            "recall": recall_score(true_labels, true_predictions),
+            "f1": f1_score(true_labels, true_predictions),
+            "classification_report": classification_report(true_labels, true_predictions),
         }
-    
-    def classification_report(self, test_set):
-        encodings=self.tokenizer(test_set["tokens"], padding=True, truncation=True, return_tensors="pt", is_split_into_words=True)
-        self.model.eval()
-        with torch.no_grad():
-            outputs = self.model(**encodings)
-            logits = outputs.logits
-            predictions = torch.argmax(logits, dim=-1)
-
-        preds = [self.id2label[pred.item()] for pred in list(predictions)]
-        ids = [self.id2label[lab] for lab in test_set["label"]]
-
-        print(classification_report(ids, preds))
-    
+        
 class TimexNorm_Utils(Utils):
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
@@ -210,3 +152,15 @@ class TimexNorm_Utils(Utils):
             
 
 
+# def classification_report(self, test_set):
+#     encodings=self.tokenizer(test_set["tokens"], padding=True, truncation=True, return_tensors="pt", is_split_into_words=True)
+#     self.model.eval()
+#     with torch.no_grad():
+#         outputs = self.model(**encodings)
+#         logits = outputs.logits
+#         predictions = torch.argmax(logits, dim=-1)
+
+#     preds = [self.id2label[pred.item()] for pred in list(predictions)]
+#     ids = [self.id2label[lab] for lab in test_set["label"]]
+
+#     print(classification_report(ids, preds))

@@ -4,6 +4,8 @@ from pyrolite.util.time import Timescale
 from transformers import pipeline
 from spacy.matcher import Matcher
 import spacy
+from spacy.tokens import Doc
+
 
 class Model:
     def __init__(self, model_path):
@@ -218,7 +220,7 @@ class TimexNormModel(Model):
         ]
         matcher.add("GEO_DATE", [pattern_no_space, pattern_with_space])
 
-        doc = nlp(" ".join(self.tokens))
+        doc = Doc(nlp.vocab, self.tokens)
 
         for _, start, end in matcher(doc):
             date = int(doc[start:end].text.lower().strip("~ma"))

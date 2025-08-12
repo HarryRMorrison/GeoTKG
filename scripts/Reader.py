@@ -77,8 +77,9 @@ class Reader:
         return filepaths
 
     def get_label_list(labels):
+        print(type(labels[0]))
         if type(labels[0]) == list:
-            label_list = sorted(list(set([tag for sentence in labels for tag in sentence['label']])))
+            label_list = sorted(list(set([tag for sentence in labels for tag in sentence])))
         else:
             label_list = sorted(list(set([tag for tag in labels])))
         label2id = {label: int(i) for i, label in enumerate(label_list)}
@@ -252,7 +253,7 @@ class MAVENReader(Reader):
                 seps = E_E_SEPS if parts=="EE" else E_T_SEPS
                 for m0 in p0:
                     for m1 in p1:
-                        rel_type, m0, m1 = Reader.to_allen(orig_rel, m0, m1)
+                        #rel_type, m0, m1 = Reader.to_allen(orig_rel, m0, m1)
                         text = deepcopy(sents)
                         if parts[0] == "E":
                             sep0_s, sep0_e = seps[0], seps[1]
@@ -374,7 +375,6 @@ class TimeMLReader(Reader):
                         return 0
         return m0
 
-    
     @staticmethod
     def link_to_input(sep_maker, text, links, events, timexs=None):
         out, labels = [], []
@@ -384,21 +384,25 @@ class TimeMLReader(Reader):
             tlink_type = "relatedToTime"
 
         for link in links:
-            if link["relType"] in ["NONE","VAGUE"]:
-                continue
+            # if link["relType"] in ["NONE","VAGUE"]:
+            #     continue
 
             m0 = TimeMLReader.get_event(link['eventInstanceID'], events)
             if m0==0:
                 continue
 
             if tlink_type == "relatedToTime":
-                m1 = timexs[link[tlink_type]]
+                try:
+                    m1 = timexs[link[tlink_type]]
+                except KeyError:
+                    print(f"Key Error {m1}")
             else:
                 m1 = TimeMLReader.get_event(link[tlink_type], events)
                 if m1==0:
                     continue
             
-            rel_type, m0, m1 = Reader.to_allen(link["relType"], m0, m1)
+            #rel_type, m0, m1 = Reader.to_allen(link["relType"], m0, m1)
+            rel_type = link["relType"]
 
             sample = deepcopy(text)
             try:
@@ -615,7 +619,7 @@ class TempEval3Reader(TimeMLReader):
         current_folder = self.file_paths_to_read[0].split('\\')[2]
         num_f = len(self.file_paths_to_read)
         print(f"Starting {current_folder}")
-
+        print(self.file_paths_to_read)
         for i, filepath in enumerate(self.file_paths_to_read):
             if filepath.split('\\')[2] != current_folder:
                 data2upload = Dataset.from_dict({"tokens":ins, "label":labs})
@@ -672,31 +676,12 @@ class TBDenseReader(TempEval3Reader):
     def read(self):
         super().read(method="TempRel", dataset_name="TBDense")
         
-
 def id_token_labels(dataset, label2id):
     def change_id(row):
         row["label"] = [label2id[tag] for tag in row["label"]]
         return row
     return dataset.map(change_id) 
-
-# Could change later to make exact train, test, eval json files
-def obtain_dataset(dataset_name, method):
-    train = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "train.json"))["train"]
-    val = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "eval.json"))["train"]
-    if method == "normalised":   
-        test = load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"]
-        return DatasetDict({"test": test, "train":train, "eval": val})
-    else:
-        label_list, label2id, id2label = obtain_label_list(train)
-        dataset = {"train": id_token_labels(train, label2id),"eval": id_token_labels(val, label2id)}
-        train, val = None, None
-        if dataset_name != "OzRock":
-            dataset["test"] = id_token_labels(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, "test.json"))["train"], label2id)
-        return DatasetDict(dataset), label_list, label2id, id2label
-    
-def obtain_label_list(dataset):
-    return Reader.get_label_list(dataset)
-
+   
 def obtain_combined_dataset(dataset_names, method):
     data = []
     for dataset_name in dataset_names:
@@ -706,26 +691,38 @@ def obtain_combined_dataset(dataset_names, method):
             data.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, json_name))["train"])
     data = concatenate_datasets(data)
     label_list, label2id, id2label = Reader.get_label_list(data["label"])
-    ids = [label2id[lab] for lab in data["label"]]
-    data = data.add_column("ids", ids).class_encode_column("ids")
-    data = data.train_test_split(test_size=0.2, shuffle=True, seed=42, stratify_by_column="ids")
-    train = data["train"]
-    test = data["test"].remove_columns("ids")
-    data = None
-    train = train.train_test_split(test_size=0.1, shuffle=True, seed=42, stratify_by_column="ids")
-    val = train["test"].remove_columns("ids")
-    train = train["train"].remove_columns("ids")
+    print(label_list, label2id, id2label)
+    if method == "TempRel":
+        ids = [label2id[lab] for lab in data["label"]]
+        data = data.add_column("labels", ids).class_encode_column("labels")
+        data = data.train_test_split(test_size=0.2, shuffle=True, seed=42, stratify_by_column="labels")
+        train = data["train"]
+        test = data["test"].remove_columns("label")
+        data = None
+        train = train.train_test_split(test_size=0.1, shuffle=True, seed=42, stratify_by_column="labels")
+        val = train["test"].remove_columns("label")
+        train = train["train"].remove_columns("label")
+    else:
+        data = data.train_test_split(test_size=0.2, shuffle=True, seed=42)
+        train = data["train"]
+        test = data["test"]
+        data = None
+        train = train.train_test_split(test_size=0.1, shuffle=True, seed=42)
+        val = train["test"]
+        train = train["train"]
     return DatasetDict({"test": test, "train":train, "eval": val}), label_list, label2id, id2label
 
 if __name__ == "__main__":
-    te = TBDenseReader("rawdata\\TBDense")
-    te.read()
+    # te = TBDenseReader("rawdata\\TBDense")
+    # te.read()
 
-    te = TempEval3Reader("rawdata\\TempEval3")
-    te.read("TempRel")
+    # te = TempEval3Reader("rawdata\\TempEval3")
+    # te.read("TempRel")
+    # te.read("BIO")
+    # te.read("normalised")
 
-    te = MATRESReader("rawdata\\MATRES")
-    te.read()
+    # te = MATRESReader("rawdata\\MATRES")
+    # te.read()
 
     te = MAVENReader("rawdata\\MAVEN_ERE")
     te.read("TempRel")

@@ -720,7 +720,7 @@ def obtain_combined_dataset(dataset_names, method):
     data = []
     for dataset_name in dataset_names:
         for json_name in ["train.json","test.json","eval.json"]:
-            if dataset_name == "MAVEN" and json_name == "test.json":
+            if dataset_name in ["OzRock", "MAVEN"] and json_name == "test.json":
                 continue
             data.append(load_dataset("json", data_files = os.path.join(CLEANDATA_PATH, method, dataset_name, json_name))["train"])
     data = concatenate_datasets(data)

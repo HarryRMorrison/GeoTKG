@@ -97,6 +97,7 @@ if __name__=="__main__":
         #temp_rel = TempRelModel("scripts\\results\\TempRel\\checkpoint-10000")
     )
     text = "The Henry River Project began on the south-western limb of Perth in 2004. A year later, they discoverd a quartz vein formation. The formation was dated to the Archean. Other projects have found gold dated to the Jurassic or ~1000ma."
+    text = "The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist."
     #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project started, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
     #text = "In 2019, BHP found a rock formation which they dated to the Archean."
@@ -124,6 +125,21 @@ LOC: 23, TEXT: discoverd
 LOC: 32, TEXT: dated
 LOC: 40, TEXT: found
 LOC: 42, TEXT: dated
+'''
+
+'''
+The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist .
+------- Reconstructed Text --------
+['The', 'mineralisation', 'was', 'characterised', 'by', 'traces', 'of', 'disseminated', 'pyrite', 'with', 'zones', 'of', 'trace', 'pyrrhotite', 'and', 'chalcopyrite', 'in', 'felsic', 'schist', '.']
+----- Detected Calender Times -----
+------- Detected Geo Times --------
+------ Detected Geo Entities ------
+LOC: 8, TEXT: pyrite
+LOC: 13, TEXT: pyrrhotite
+LOC: 15, TEXT: chalcopyrite
+LOC: 17, TEXT: felsic
+--------- Detected Events ---------
+LOC: 3, TEXT: characterised
 '''
 
 

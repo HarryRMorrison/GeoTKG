@@ -99,7 +99,7 @@ class OzRockReader(Reader):
         super().__init__(path)
 
     def read(self):     
-        out_path = os.path.join(CLEANDATA_PATH, "BIO", "OzRock")
+        out = {}
 
         for filepath in self.file_paths_to_read:
             with open(filepath, 'r') as file:
@@ -119,18 +119,18 @@ class OzRockReader(Reader):
                         sentence["tokens"].append(word)
                         sentence["label"].append(tag)
                 
-                data = Dataset.from_list(data)
-                data.to_json(os.path.join(out_path, filepath.split('/')[-1]+".json"))
-        return
+            out[os.path.basename(filepath).split(".")[0]] = {"data": data}
+        return out
 
 class MAVENReader(Reader):
     def __init__(self, path: str):
         super().__init__(path)
 
     def read(self):
-        json_path = os.path.join(CLEANDATA_PATH, "MAVEN", "data")
+        out = {}
         for file in self.file_paths_to_read:
             info = []
+            mention_counter = 0
             name = os.path.basename(file).split(".")[0]
             print(f"Reading {name}")
             with open(file, 'r') as f:
@@ -141,10 +141,12 @@ class MAVENReader(Reader):
                         info.append(MAVENReader.test_data_info(line))
                     else:
                         info.append(MAVENReader.get_doc_info(line))
-            data2upload = Dataset.from_list(info)
-            data2upload.to_json(os.path.join(json_path, name+".json"))
-        return
-    
+                    if "events" in line:
+                        mention_counter += sum([len(event["mention"]) for event in line["events"]])
+            print(mention_counter)
+            out[name] = info
+        return out
+
     def test_data_info(data):
         events = []
         timexs = []
@@ -234,7 +236,7 @@ class MAVENReader(Reader):
                     'text': m["trigger_word"]
                 })
                 for n in events[event]:
-                    if m == n:
+                    if m["id"] == n["id"]:
                         continue
                     else:
                         out["ee_temprels"].append({"e1":m['id'], "e2":n['id'], "rel":"IDENTITY"})
@@ -259,6 +261,7 @@ class TimeMLReader(Reader):
     def get_doc_and_loc(root, eid2eiid):
         nlp = English()
         nlp.add_pipe("sentencizer")
+        tokenizer = nlp.tokenizer
         doc = root.find('TEXT')
         dct = root.find('DCT').find('TIMEX3')
         text, events, timexs, sentence, sentid = [], {}, {}, [], 0
@@ -266,7 +269,7 @@ class TimeMLReader(Reader):
         
         for elem in doc.iter():
             start = len(sentence)
-            sentence.append(elem.text.replace("\n",""))
+            sentence.extend([bit.text for bit in tokenizer(elem.text.replace("\n",""))])
             if elem.tag == 'EVENT':
                 try:
                     events[eid2eiid[elem.attrib.get('eid')]] = {
@@ -285,7 +288,7 @@ class TimeMLReader(Reader):
                     'offset': (start, len(sentence)),
                     'text': elem.text
                 }
-            tail = elem.tail.replace("\n","")
+            tail = [bit.text for bit in tokenizer(elem.text.replace("\n",""))]
             tail_doc = nlp(elem.tail.replace("\n",""))
             if len(list(tail_doc.sents)) > 1:
                 text.append(sentence+[str(tok) for tok in list(tail_doc.sents)[0]])
@@ -294,7 +297,7 @@ class TimeMLReader(Reader):
                 sentid += 1
                 sentence.extend(tail)
             else:
-                sentence.append(tail)
+                sentence.extend(tail)
         text.append(sentence)
         return text, events, timexs
     
@@ -307,44 +310,39 @@ class TimeMLReader(Reader):
             return 0
 
     @staticmethod
-    def tlink_to_input(links, events, timexs=None):
-        tlink_type = "relatedToEventInstance" if timexs is None else "relatedToTime"
+    def ee_link_to_input(links, events):
         out = []
-        n_events = {}
-        n_timexs = {}
 
         for link in links:
-            if link["relType"] == "NONE":
-                continue
-
             id0 = TimeMLReader.check_id(link['eventInstanceID'], events)
-            if id0==0:
-                continue
-            else:
-                n_events[id0] = events[id0]
-            if tlink_type == "relatedToEventInstance":
-                id1 = TimeMLReader.check_id(link[tlink_type], events)
-                if id1 == 0:
-                    continue
-                else:
-                    n_events[id1] = events[id1]
-            else:
-                id1 = TimeMLReader.check_id(link[tlink_type], timexs)
-                if id1 == 0:
-                    continue
-                else:
-                    n_timexs[id1] = timexs[id1]
-            
-            rel_type, id0, id1 = Reader.to_allen(link["relType"], id0, id1)
-            if tlink_type == "relatedToEventInstance":
-                out.append({"e1":id0, "e2":id1, "rel":rel_type})
-            elif rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
-                out.append({"event":id0, "time":id1})
+            if id0==0: continue
 
-        if tlink_type == "relatedToEventInstance":
-            return out, n_events
-        else:
-            return out, n_events, n_timexs
+            id1 = TimeMLReader.check_id(link["relatedToEventInstance"], events)
+            if id1 == 0: continue
+
+            if link["relType"] == "NONE": continue
+
+            rel_type, id0, id1 = Reader.to_allen(link["relType"], id0, id1)
+            out.append({"e1":id0, "e2":id1, "rel":rel_type})
+        return out
+    
+    @staticmethod
+    def et_link_to_input(links, events, timexs):
+        out = []
+
+        for link in links:
+            id0 = TimeMLReader.check_id(link['eventInstanceID'], events)
+            if id0==0: continue
+            
+            id1 = TimeMLReader.check_id(link["relatedToTime"], timexs)
+            if id1 == 0: continue
+
+            if link["relType"] == "NONE": continue
+
+            rel_type, id0, id1 = Reader.to_allen(link["relType"], id0, id1)
+            if rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+               out.append({"event":id0, "time":id1})
+        return out
 
     @staticmethod
     def get_doc_info(file):
@@ -361,8 +359,12 @@ class TimeMLReader(Reader):
                     "relType":link.attrib.get("relType")} 
                     for link in root.findall('TLINK[@relatedToTime][@eventInstanceID]')]
         text, events, timexs = TimeMLReader.get_doc_and_loc(root, eid2eiid)
-        ee_temprels, events = TimeMLReader.tlink_to_input(EElinks, events)
-        event_times, events, timexs = TimeMLReader.tlink_to_input(ETlinks, events, timexs)
+        ee_temprels = TimeMLReader.ee_link_to_input(EElinks, events)
+        if len(EElinks) != len(ee_temprels):
+            print(f"Warning: {len(EElinks)} EE links found, but {len(ee_temprels)} temporal relations created.")
+            print(file)
+            print(eid2eiid)
+        event_times = TimeMLReader.et_link_to_input(ETlinks, events, timexs)
         joint, join_list = events | timexs, []
         for inst in joint:
             info = joint[inst]
@@ -385,36 +387,7 @@ class TimeMLReader(Reader):
                 bio_tags[inst["sent_id"]][i] = replace
                 replace = f"I-{inst['type']}"
 
-        return bio_tags
-
-    @staticmethod
-    def get_timex_values(doc):
-        found_index = next((index for index, item in enumerate(doc["instances"]) if item.get("id") == "t0"), None)
-        if found_index is None:
-            return []
-        dct = doc["instances"][found_index]['value']
-        found_indexes = []
-        for index, item_dict in enumerate(doc["instances"]):
-            if "value" in item_dict:
-                found_indexes.append(index)
-
-        data = []
-        task = f"Document creation time is {dct}<sep> normalise time text:"
-
-        for time_loc in found_indexes:
-            info = doc["instances"][time_loc]
-            text = doc["text"].copy()
-            if info['id']=="t0":
-                continue
-
-            text[info["sent_id"]].insert(info["offset"][0], f"<timex type={info['type']}>")
-            text[info["sent_id"]].insert(info["offset"][1]+1, "</timex>")
-
-            text = text[max(0,info["sent_id"]-1):max(len(text),info["sent_id"]+1)]
-            text = [wrd for inner in text[info["sent_id"]-1:info["sent_id"]+1] for wrd in inner]
-            data.append({"input_text": task + " ".join(text), "target_text": info["value"]})
-    
-        return data       
+        return bio_tags      
     
     @staticmethod
     def get_quintuples(filepath):
@@ -425,42 +398,29 @@ class TempEval3Reader(TimeMLReader):
         super().__init__(path)
 
     def read(self, dataset_name="TempEval3"):
-        json_path = os.path.join(CLEANDATA_PATH, dataset_name, "data")
-        json_path_norm = os.path.join(CLEANDATA_PATH, dataset_name, "normalise")
-        
-        data, norm_data = [], []
+        data, out = [], {}
         current_folder = self.file_paths_to_read[0].split('\\')[2]
         num_f = len(self.file_paths_to_read)
         print(f"Starting {current_folder}")
 
         for i, filepath in enumerate(self.file_paths_to_read):
             if filepath.split('\\')[2] != current_folder:
-                data2upload = Dataset.from_list(data)
-                data2upload.to_json(os.path.join(json_path, current_folder+".json"))
-
-                data2upload = Dataset.from_list(norm_data)
-                data2upload.to_json(os.path.join(json_path_norm, current_folder+".json"))
-
-                data2upload = None
+                out[str(current_folder)] = deepcopy(data)
                 current_folder = filepath.split('\\')[2]
-            print(f"Processing file {i}/{num_f}")
+                data = []
+                print(f"Starting {current_folder}")
+            print(f"Processing file {i+1}/{num_f}")
             info = TempEval3Reader.get_doc_info(filepath)
-            norms = TempEval3Reader.get_timex_values(info)
             data.append(info)
-            norm_data.extend(norms)
-
-
-        data2upload = Dataset.from_list(data)
-        data2upload.to_json(os.path.join(json_path, current_folder+".json"))
-        data2upload = Dataset.from_list(norm_data)
-        data2upload.to_json(os.path.join(json_path_norm, current_folder+".json"))
+        out[str(current_folder)] = data.copy()
+        return out
 
 class TBDenseReader(TempEval3Reader):
     def __init__(self, path):
         super().__init__(path)
     
     def read(self):
-        super().read(dataset_name="TBDense")
+        return super().read(dataset_name="TBDense")
         
 class TweetsReader(TimeMLReader):
     def __init__(self, path):
@@ -468,23 +428,20 @@ class TweetsReader(TimeMLReader):
 
     def read(self):
         json_paths = {"trainingset":os.path.join(CLEANDATA_PATH, "Tweets", "normalise", "train.json"), "tweets_test_with_newline":os.path.join(CLEANDATA_PATH, "Tweets", "normalise", "test.json")}
-        norm_data = []
+        norm_data, out = [], {}
         current_folder = self.file_paths_to_read[1].split('\\')[2]
         for file in self.file_paths_to_read:
             if not file.endswith(".tml"):
                 continue
             if file.split('\\')[2] != current_folder:
-                data2upload = Dataset.from_list(norm_data)
-                data2upload.to_json(json_paths[current_folder])
-                data2upload=None
-                norm_data=[]
+                out[current_folder] = {"norm_data": norm_data}
+                norm_data = []
                 current_folder = file.split('\\')[2]
             text, events, timexs = TweetsReader.get_doc_and_loc(ET.parse(file).getroot(), {})
             norms = TweetsReader.get_timex_values(text, timexs)
             norm_data.extend(norms)
 
-        data2upload = Dataset.from_list(norm_data)
-        data2upload.to_json(json_paths[current_folder])
+        return out
 
     @staticmethod
     def get_timex_values(text, timexs):
@@ -512,24 +469,22 @@ class WikiWarsReader(TweetsReader):
         super().__init__(path)
 
     def read(self):
-        json_paths = {"train":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "train.json"), "test":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "test.json")}
+        #json_paths = {"train":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "train.json"), "test":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "test.json")}
         norm_data = []
+        out = {}
         current_folder = self.file_paths_to_read[1].split('\\')[2]
         for file in self.file_paths_to_read:
             if not file.endswith(".tml"):
                 continue
             if file.split('\\')[2] != current_folder:
-                data2upload = Dataset.from_list(norm_data)
-                data2upload.to_json(json_paths[current_folder])
-                data2upload=None
-                norm_data=[]
+                out[current_folder] = {"norm_data": norm_data}
+                norm_data = []
                 current_folder = file.split('\\')[2]
             text, events, timexs = WikiWarsReader.get_doc_and_loc(ET.parse(file).getroot(), {})
             norms = WikiWarsReader.get_timex_values(text, timexs)
             norm_data.extend(norms)
 
-        data2upload = Dataset.from_list(norm_data)
-        data2upload.to_json(json_paths[current_folder])
+        return out
 
 
 
@@ -570,8 +525,8 @@ def obtain_combined_dataset(dataset_names, method):
     return DatasetDict({"test": test, "train":train, "eval": val}), label_list, label2id, id2label
 
 if __name__ == "__main__":
-    te = TBDenseReader("rawdata\\TBDense")
-    te.read()
+    # te = TBDenseReader("rawdata\\TBDense")
+    # te.read()
 
     # te = TweetsReader("rawdata\\tweets")
     # te.read()
@@ -579,8 +534,10 @@ if __name__ == "__main__":
     # te = WikiWarsReader("rawdata\\WikiWars")
     # te.read()
 
-    te = TempEval3Reader("rawdata\\TempEval3")
-    te.read()
+    # te = TempEval3Reader("rawdata\\TempEval3")
+    # te.read()
 
     # te = MAVENReader("rawdata\\MAVEN_ERE")
     # te.read()
+
+    out = TimeMLReader.get_doc_info("rawdata\\TBDense\\dev\\APW19980227.0487.tml")

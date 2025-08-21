@@ -354,10 +354,17 @@ class TimeMLReader(Reader):
                     "relatedToEventInstance":link.attrib.get("relatedToEventInstance"), 
                     "relType":link.attrib.get("relType")} 
                     for link in root.findall('TLINK[@relatedToEventInstance][@eventInstanceID]')]
+        if len(EElinks) == 0:
+            print(file)
         ETlinks = [{"eventInstanceID":link.attrib.get("eventInstanceID"), 
                     "relatedToTime":link.attrib.get("relatedToTime"), 
                     "relType":link.attrib.get("relType")} 
                     for link in root.findall('TLINK[@relatedToTime][@eventInstanceID]')]
+        ETlinks.extend([{"eventInstanceID":link.attrib.get("relatedToEventInstance"), 
+                         "relatedToTime":link.attrib.get("timeID"), 
+                         "relType":link.attrib.get("relType")} 
+                         for link in root.findall('TLINK[@timeID][@relatedToEventInstance]')])
+
         text, events, timexs = TimeMLReader.get_doc_and_loc(root, eid2eiid)
         ee_temprels = TimeMLReader.ee_link_to_input(EElinks, events)
         # if len(EElinks) != len(ee_temprels):
@@ -535,10 +542,11 @@ if __name__ == "__main__":
     # te = WikiWarsReader("rawdata\\WikiWars")
     # te.read()
 
-    # te = TempEval3Reader("rawdata\\TempEval3")
-    # te.read()
+    te = TempEval3Reader("D:\\GeoTKG\\rawdata\\TempEval3")
+    te.read()
 
     # te = MAVENReader("rawdata\\MAVEN_ERE")
     # te.read()
 
-    out = TimeMLReader.get_doc_info("rawdata\\TBDense\\dev\\APW19980227.0487.tml")
+    # out = TimeMLReader.get_doc_info("rawdata\\TempEval3\\eval\\AQUAINT\\APW19990206.0090.tml")
+    # print(out)

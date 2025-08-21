@@ -40,13 +40,13 @@ ALLEN_MAP = {
     "EQUAL":        ("EQUALS", False), # MATRES
 
     # ---- Starts / Finishes (boundary matches)
-    "BEGINS":   ("STARTS", False),     # TE3
-    "BEGUN_BY": ("STARTS", True),      # TE3 inverse
-    "BEGINS-ON":("STARTS", False),     # MAVEN
+    "BEGINS":   ("DURING", False),     # TE3
+    "BEGUN_BY": ("DURING", True),      # TE3 inverse
+    "BEGINS-ON":("DURING", False),     # MAVEN
 
-    "ENDS":     ("FINISHES", False),   # TE3
-    "ENDED_BY": ("FINISHES", True),    # TE3 inverse
-    "ENDS-ON":  ("FINISHES", False),   # MAVEN
+    "ENDS":     ("DURING", False),   # TE3
+    "ENDED_BY": ("DURING", True),    # TE3 inverse
+    "ENDS-ON":  ("DURING", False),   # MAVEN
 
     # IDENTITY
     "IDENTITY":     ("IDENTITY", False), # TE3, MAVEN comentions
@@ -360,10 +360,10 @@ class TimeMLReader(Reader):
                     for link in root.findall('TLINK[@relatedToTime][@eventInstanceID]')]
         text, events, timexs = TimeMLReader.get_doc_and_loc(root, eid2eiid)
         ee_temprels = TimeMLReader.ee_link_to_input(EElinks, events)
-        if len(EElinks) != len(ee_temprels):
-            print(f"Warning: {len(EElinks)} EE links found, but {len(ee_temprels)} temporal relations created.")
-            print(file)
-            print(eid2eiid)
+        # if len(EElinks) != len(ee_temprels):
+        #     print(f"Warning: {len(EElinks)} EE links found, but {len(ee_temprels)} temporal relations created.")
+        #     print(file)
+        #     print(eid2eiid)
         event_times = TimeMLReader.et_link_to_input(ETlinks, events, timexs)
         joint, join_list = events | timexs, []
         for inst in joint:
@@ -399,14 +399,15 @@ class TempEval3Reader(TimeMLReader):
 
     def read(self, dataset_name="TempEval3"):
         data, out = [], {}
-        current_folder = self.file_paths_to_read[0].split('\\')[2]
+        split_num = 4
+        current_folder = self.file_paths_to_read[0].split('\\')[split_num]
         num_f = len(self.file_paths_to_read)
         print(f"Starting {current_folder}")
 
         for i, filepath in enumerate(self.file_paths_to_read):
-            if filepath.split('\\')[2] != current_folder:
+            if filepath.split('\\')[split_num] != current_folder:
                 out[str(current_folder)] = deepcopy(data)
-                current_folder = filepath.split('\\')[2]
+                current_folder = filepath.split('\\')[split_num]
                 data = []
                 print(f"Starting {current_folder}")
             print(f"Processing file {i+1}/{num_f}")

@@ -1,4 +1,4 @@
-#from Reader import TBDenseReader, TempEval3Reader, MAVENReader, OzRockReader, TweetsReader, WikiWarsReader
+from Reader import MAVENReader
 #from transformers import AutoTokenizer
 import numpy as np
 
@@ -63,22 +63,21 @@ def balance_and_stratify_temprels():
     return
 
 def get_temprel_counts(data):
-    total = []
-    counter = 0
+    total = {}
     for split in data:
-        counts = {}
+        split_counts = []
         for sample in data[split]:
             counts = {}
             for temprel in sample["ee_temprels"]:
-                counter += 1
                 counts[temprel["rel"]] = counts.get(temprel["rel"], 0) + 1
-            total.append(counts)
+            split_counts.append(counts)
+        total[split] = split_counts
     return total
 
 def get_dataset(reader):
     data = reader.read()
-    #if type(reader) is MAVENReader:
-        #data.pop("test")
+    if type(reader) is MAVENReader:
+        data.pop("test")
     for split in data:
         for sample in data[split]:
             sample = reindex(sample)

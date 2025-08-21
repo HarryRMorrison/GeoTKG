@@ -55,13 +55,6 @@ def reindex(data):
         eventtimes['time'] = tid2index[eventtimes['time']]
     return data
 
-def balance_temprels(data):
-    return
-
-def balance_and_stratify_temprels():
-
-    return
-
 def get_temprel_counts(data):
     total = {}
     for split in data:
@@ -76,18 +69,16 @@ def get_temprel_counts(data):
 
 def get_dataset(reader):
     data = reader.read()
-    if type(reader) is MAVENReader:
-        data.pop("test")
     for split in data:
+        if type(reader) is MAVENReader and split == "test":
+            continue
         for sample in data[split]:
             sample = reindex(sample)
     return data
 
-#("tbdense", TBDenseReader("rawdata\\TBDense"))
 # counts = {}
 # data = []
-# for name, reader in [("te3", TempEval3Reader("rawdata\\TempEval3"))]:#[('maven', MAVENReader("rawdata\\MAVEN_ERE"))]:#, ("tbdense", TBDenseReader("rawdata\\TBDense")), ("te3", TempEval3Reader("rawdata\\TempEval3"))]:
+# for name, reader in [('maven', MAVENReader("rawdata\\MAVEN_ERE"))]:#, ("tbdense", TBDenseReader("rawdata\\TBDense")), ("te3", TempEval3Reader("rawdata\\TempEval3"))]:
 #     out = get_dataset(reader)
-#     counts[name] = get_temprel_counts(out)
     
 # print(counts)

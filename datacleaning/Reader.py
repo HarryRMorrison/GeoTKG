@@ -195,6 +195,7 @@ class MAVENReader(Reader):
         sents = data["tokens"]
 
         out = {"text":data['tokens'], "instances":[], "event_times":[], "ee_temprels":[], "bio_tags":None}
+        ev_times_found = {}
 
         for rel_type in relations:
             for relation in relations[rel_type]:
@@ -213,18 +214,36 @@ class MAVENReader(Reader):
                             p1 = timexs[relation[1]]
                         except KeyError:
                             continue
-                        if rel_type in ["CONTAINS","SIMULTANEOUS"]:
-                            out["event_times"].extend([{"event":m0['id'], "time":p1['id']} for m0 in p0])
+
+                        for m0 in p0:
+                            altered_rel_type, e, t = Reader.to_allen(rel_type, m0['id'], p1['id'])
+                            if e in ev_times_found:
+                                if ev_times_found[e][0] == "EQUALS":
+                                    continue
+                                else:
+                                    ev_times_found[e] = (altered_rel_type, {"event":e, "time":t})
+                            elif altered_rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+                                ev_times_found[e] = (altered_rel_type, {"event":e, "time":t})
                     case ("TIME", "EVENT"):
                         try:
-                            p0 = timexs[relation[0]]
+                            p0 = timexs[relation[0]] # Time
                         except KeyError:
                             continue
-                        p1 = events[relation[1]]
-                        if rel_type in ["CONTAINS","SIMULTANEOUS"]:
-                            out["event_times"].extend([{"event":m1['id'], "time":p0['id']} for m1 in p1])
+                        p1 = events[relation[1]] # Event
+
+                        for m0 in p1:
+                            altered_rel_type, e, t = Reader.to_allen(rel_type, m0['id'], p0['id'])
+                            if e in ev_times_found:
+                                if ev_times_found[e][0] == "EQUALS":
+                                    continue
+                                else:
+                                    ev_times_found[e] = (altered_rel_type, {"event":e, "time":t})
+                            elif altered_rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+                                ev_times_found[e] = (altered_rel_type, {"event":e, "time":t})
                     case _:
                         continue
+        
+        out["event_times"] = [et[1] for et in ev_times_found.values()]
         
         for event in events:
             for m in events[event]:
@@ -328,7 +347,7 @@ class TimeMLReader(Reader):
     
     @staticmethod
     def et_link_to_input(links, events, timexs):
-        out = []
+        out = {}
 
         for link in links:
             id0 = TimeMLReader.check_id(link['eventInstanceID'], events)
@@ -340,9 +359,18 @@ class TimeMLReader(Reader):
             if link["relType"] == "NONE": continue
 
             rel_type, id0, id1 = Reader.to_allen(link["relType"], id0, id1)
-            if rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
-               out.append({"event":id0, "time":id1})
-        return out
+            if id1[0]=="e":
+                id1, id0 = id0, id1  # swap if time is first
+
+            if id0 in out:
+                if out[id0][0] == "EQUALS":
+                    continue
+                elif rel_type == "EQUALS":
+                    out[id0] = (rel_type, {"event":id0, "time":id1})
+
+            elif rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+               out[id0] = (rel_type, {"event":id0, "time":id1})
+        return [et[1] for et in out.values()]
 
     @staticmethod
     def get_doc_info(file):

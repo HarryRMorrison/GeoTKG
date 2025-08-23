@@ -1,7 +1,6 @@
 /rawdata
-/GeoTKG
+/datacleaning/__pycache__
 /venv
-/GeoTKG3.10
 /__pycache__
 /training/__pycache__
 training/results

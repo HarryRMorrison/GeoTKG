@@ -200,7 +200,7 @@ class JointTemporalModel(nn.Module):
         ner_out = self.ner(H)
         out["ner_logits"] = ner_out["logits"]
         if ner_gold_labels is not None:
-            ner_loss = self.loss_fn(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), ner_gold_labels.view(-1))
+            ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), ner_gold_labels.view(-1))
             out["ner_loss"] = ner_loss
 
         # 2) Span Max Pooling
@@ -210,16 +210,16 @@ class JointTemporalModel(nn.Module):
         # 3) Cross-Attention-Pointer (events -> times)
         ca_out = self.ca(hE, hT)
         out["ca_logits"] = ca_out["ptr_probs"]
-        if ev_ti_gold_pairs is not None:
+        if ev_ti_gold is not None:
             logp = (ca_out["ptr_probs"] + 1e-12).log() 
-            ca_loss = self.nll_loss(logp.view(-1, logp.size(-1)), ev_ti_gold_pairs.view(-1), ignore_index=-100, reduction='mean')
+            ca_loss = self.loss_nll(logp.view(-1, logp.size(-1)), ev_ti_gold.view(-1), ignore_index=-100, reduction='mean')
             out["ca_loss"] = ca_loss
 
         # 4) Event-Event Temporal Relation Head
         ee_pairs = ee_gold_triples[:, [0, 2]]   # [B, M, 2]
         ee_triples_labels = ee_gold_triples[:, 1]  # [B, M]
-        e_idx = ev_ti_gold_pairs[..., 0].long()  # [B, M] event indices
-        t_idx = ev_ti_gold_pairs[..., 1].long()  # [B, M] time indices
+        e_idx = ev_ti_gold[..., 0].long()  # [B, M] event indices
+        t_idx = ev_ti_gold[..., 1].long()  # [B, M] time indices
         t_emb = torch.gather(hT, 1, t_idx.unsqueeze(-1).expand(-1, -1, hT.size(-1)))  # [B, M, d]
         hT_e = torch.zeros(hE.size(0), hE.size(1), hT.size(-1), device=hE.device)  # [B, Ne, d]
         batch = torch.arange(hE.size(0), device=hT.device).unsqueeze(-1).expand_as(e_idx)  # [B, M]
@@ -235,12 +235,3 @@ class JointTemporalModel(nn.Module):
 
 if __name__=="__main__":
     test = MaxSpanPool()
-    toks = torch.tensor([[[ 1.,  0.,  2.],   # token 0
-                        [ 0.,  3.,  1.],   # token 1
-                        [-1.,  4.,  0.],   # token 2
-                        [ 2.,  2.,  2.],   # token 3
-                        [ 1.,  5., -3.],   # token 4
-                        [ 0., -1.,  7.]]])
-    starts = torch.tensor([[0, 2, 4, 5]])
-    ends = torch.tensor([[2, 5, 6, 5]])
-    print(test.forward(toks, starts, ends))

@@ -104,22 +104,22 @@ class OzRockReader(Reader):
         for filepath in self.file_paths_to_read:
             with open(filepath, 'r') as file:
                 lines = file.readlines()
-                data, sentence = [], {"tokens": [], "label": []}
+                data, sentence = [], {"tokens": [], "bio_tags": []}
                 for line in lines[1:]:
                     try:
                         word, tag = line.strip("\n").split(" ")
                     except ValueError:
                         data.append(sentence)
-                        sentence = {"tokens": [], "label": []}
+                        sentence = {"tokens": [], "bio_tags": []}
                         continue
                     if word == "" or tag == "":
                         data.append(sentence)
-                        sentence = {"tokens": [], "label": []}
+                        sentence = {"tokens": [], "bio_tags": []}
                     else:
                         sentence["tokens"].append(word)
-                        sentence["label"].append(tag)
+                        sentence["bio_tags"].append(tag)
                 
-            out[os.path.basename(filepath).split(".")[0]] = {"data": data}
+            out[os.path.basename(filepath).split(".")[0]] = data
         return out
 
 class MAVENReader(Reader):
@@ -561,20 +561,5 @@ def obtain_combined_dataset(dataset_names, method):
     return DatasetDict({"test": test, "train":train, "eval": val}), label_list, label2id, id2label
 
 if __name__ == "__main__":
-    # te = TBDenseReader("rawdata\\TBDense")
-    # te.read()
-
-    # te = TweetsReader("rawdata\\tweets")
-    # te.read()
-    
-    # te = WikiWarsReader("rawdata\\WikiWars")
-    # te.read()
-
-    te = TempEval3Reader("D:\\GeoTKG\\rawdata\\TempEval3")
-    te.read()
-
-    # te = MAVENReader("rawdata\\MAVEN_ERE")
-    # te.read()
-
-    # out = TimeMLReader.get_doc_info("rawdata\\TempEval3\\eval\\AQUAINT\\APW19990206.0090.tml")
-    # print(out)
+    out = TimeMLReader.get_doc_info("rawdata\\TempEval3\\eval\\AQUAINT\\APW19990206.0090.tml")
+    print(out)

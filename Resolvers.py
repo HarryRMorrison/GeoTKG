@@ -1,6 +1,55 @@
 import spacy
 import numpy as np
 
+def decode(self, text):
+        encodings = self.tokenizer(text, padding=True, truncation=True, return_tensors="pt")
+        decodings = self.tokenizer.convert_ids_to_tokens(encodings["input_ids"][0])
+        out = "".join(decodings)
+        out = out.split("Ġ")
+        return decodings, out
+    
+# 'B-LOCATION': 0, 'B-MINERAL': 1, 'B-ORE_DEPOSIT': 2, 'B-ROCK': 3, 'B-STRAT': 4, 'B-TIMESCALE': 5
+# 'I-LOCATION': 6, 'I-MINERAL': 7, 'I-ORE_DEPOSIT': 8, 'I-ROCK': 9, 'I-STRAT': 10, 'I-TIMESCALE': 11
+def get_geo_entity_locations(predictions, bi_map={0:6, 1:7, 2:8, 3:9, 4:10}):
+    locations = []
+    Bs = bi_map.keys()
+    i = 0
+    while i < len(predictions[0]):
+        if predictions[0][i].item() in Bs:
+            start = i
+            ent_type = predictions[0][i].item()
+            i += 1
+            while i < len(predictions[0]) and predictions[0][i] == bi_map[ent_type]:
+                i += 1
+            locations.append([start, i])  # [start, end) format
+        else:
+            i += 1
+    return locations
+
+def get_event_locations(predictions, bi_map={2:7}, return_types = False):
+    predictions = predictions[0]
+    labels = ["B-DATE", "B-DURATION", "B-EVENT", "B-SET", "B-TIME", "I-DATE", "I-DURATION", "I-EVENT", "I-SET", "I-TIME"]
+    locations = []
+    types = []
+    Bs = list(bi_map.keys())
+    i = 0
+    while i < len(predictions):
+        if predictions[i].item() in Bs:  # B-Event: 2
+            start = i
+            i += 1
+            ent_type = predictions[start].item()
+            types.append(labels[ent_type][2:])
+            while i < len(predictions) and predictions[i] == bi_map[ent_type]:  # I-Event: 7
+                i += 1
+            locations.append([start, i])  # [start, end) format
+        else:
+            i += 1
+
+    if return_types:
+        return locations, types
+    else:
+        return locations
+
 def CorefResolve(text):
     nlp = spacy.load("en_coreference_web_trf")
     nlp.add_pipe("experimental_span_resolver", after="coref")

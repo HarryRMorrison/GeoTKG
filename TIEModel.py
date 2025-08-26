@@ -3,10 +3,7 @@ import torch.nn as nn
 from transformers import AutoModel
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
 from sklearn.metrics import f1_score as sk_f1, classification_report as sk_cr
-import contextlib
-
-EVENT_TIME_NER_LABS = ["B-DATE", "B-DURATION", "B-EVENT", "B-SET", "B-TIME", "I-DATE", "I-DURATION", "I-EVENT", "I-SET", "I-TIME", "O"]
-EE_TEMPREL_LABS = ["BEFORE", "AFTER", "DURING", "OVERLAPS", "CONTAINS", "SIMULTANEOUS", "IDENTITY"]
+from globals import EVENT_BI, TIMEX_BI, LABEL2ID_EVNER, LABEL2ID_EE, ID2LABEL_EVNER, ID2LABEL_EE
 
 # --------------------------------
 # Max Span Pooling
@@ -65,11 +62,44 @@ class NERHead(nn.Module):
         out = {"logits": logits}
         return out
 
-    @torch.no_grad()
-    def decode(self, logits):
-        # Greedy tag IDs per token. Shape: [B, L]
-        return logits.argmax(dim=-1)
-    
+    @torch.no_grad()    
+    def decode(logits):
+        # Need to update to take a batch instead
+        decoded = logits.argmax(-1)
+        bi_map = {**EVENT_BI, **TIMEX_BI}
+        Bs = bi_map.keys()
+        ti_starts, ti_ends = [], []
+        ev_starts, ev_ends = [], []
+        for example in decoded:
+            time_starts, time_ends = [], []
+            event_starts, event_ends = [], []
+            i = 0
+            while i < example.shape[0]:
+                if example[i].item() in Bs:
+                    start = i
+                    ent_type = example[i].item()
+                    is_timex = True if ent_type in TIMEX_BI else False
+                    i += 1
+                    while i < len(example) and example[i] == bi_map[ent_type]:
+                        i += 1
+                    if is_timex: 
+                        time_starts.append(start)
+                        time_ends.append(i)
+                    else: 
+                        event_starts.append(start)
+                        event_ends.append(i)
+                else:
+                    i += 1
+            ti_starts.append(torch.tensor(time_starts, dtype=torch.long))
+            ti_ends.append(torch.tensor(time_ends, dtype=torch.long))
+            ev_starts.append(torch.tensor(event_starts, dtype=torch.long))
+            ev_ends.append(torch.tensor(event_ends, dtype=torch.long))
+        ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=-1)
+        ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=-1)
+        ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=-1)
+        ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=-1)
+        return ev_starts, ev_ends, ti_starts, ti_ends
+
 # ----------------------------
 # Cross-attention
 # ----------------------------
@@ -79,10 +109,8 @@ class CrossAttention(nn.Module):
         self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout)
         self.none_token = nn.Parameter(torch.zeros(1, 1, d))  # learned NONE
         self.ln = nn.LayerNorm(d)
-        # optional: small linear to map ϕ(e,t) -> additive bias via attn_mask
-        # self.bias = nn.Linear(k_feats, 1)
 
-    def forward(self, hE, hT, key_padding_mask_T=None, attn_bias=None):
+    def forward(self, hE, hT, attn_bias=None):
         """
         hE: [B, Ne, d] events -> queries
         hT: [B, Nt, d] times  -> keys/values
@@ -95,27 +123,15 @@ class CrossAttention(nn.Module):
         none = self.none_token.expand(B, 1, -1)          # [B,1,d]
         T_aug = torch.cat([hT, none], dim=1)             # [B, Nt+1, d]
 
-        # build masks
-        if key_padding_mask_T is not None:
-            kpm = torch.cat([key_padding_mask_T, torch.zeros(B,1, dtype=torch.bool, device=hE.device)], dim=1)
-        else:
-            kpm = None
-
         # attn_mask: additive bias (float) or bool; if float, negative values downweight
         am = None
-        if attn_bias is not None:
-            # For simplicity, average across heads → use [B, Ne, Nt+1] then flatten to [Ne, Nt+1] per batch
-            # prior_b: [B, Ne, Nt] negative distances (or any additive bias)
-            # append NONE column of zeros
-            prior_b = torch.cat([attn_bias, attn_bias.new_zeros(attn_bias.size(0), attn_bias.size(1), 1)], dim=2)  # [B, Ne, Nt+1]
+        if attn_bias is not None:        # [B,Ne,Nt]
+            zero = attn_bias.new_zeros(B, hE.size(1), 1)
+            attn_bias = torch.cat([attn_bias, zero], -1)            # [B,Ne,Nt+1]
+            H = self.mha.num_heads
+            am = attn_bias.repeat_interleave(H, dim=0).to(hE.dtype) # [B*H,Ne,Nt+1]
 
-            # expand to (B * num_heads, Ne, Nt+1)
-            H = self.mha.num_heads  # don't hardcode
-            am = prior_b.repeat_interleave(H, dim=0)  # [B*H, Ne, Nt+1]
-
-
-        # run MHA: queries=hE, keys=T_aug, values=T_aug
-        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=kpm, attn_mask=am, need_weights=True, average_attn_weights=True)
+        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=None, attn_mask=am, need_weights=True, average_attn_weights=True)
         out = self.ln(out + hE)
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt+1] (avg across heads); with dropout=0, this sums to 1 → pointer probs
@@ -131,12 +147,6 @@ class CrossAttention(nn.Module):
 # Event-Event Temporal Relation Head
 # ----------------------------
 class EEHead(nn.Module):
-    """
-    Classifies temporal relation between two events using:
-      [h_e1 ; h_e2 ; h_tbar(e1) ; h_tbar(e2) ; φ(e1,e2)]
-    Optionally include elementwise products if you like.
-    Could include dropout
-    """
     def __init__(self, d, n_labels, hidden=256*2, dropout=0.1):
         super().__init__()
         in_dim = 8*d
@@ -169,39 +179,31 @@ class EEHead(nn.Module):
         logits = self.mlp(x)                                             # [B,M,C]
         return logits
 
-class JointTemporalModel(nn.Module):
+class TIEModel(nn.Module):
     def __init__(self, base="roberta-base",
-                 num_ner=len(EVENT_TIME_NER_LABS),
-                 ee_labels=len(EE_TEMPREL_LABS),
+                 num_ner=len(LABEL2ID_EVNER),
+                 ee_labels=len(LABEL2ID_EE),
                  heads=6,
                  et_feat_dim=0,       # φ(e,t) size
                  ee_feat_dim=0):      # φ(e1,e2) size
         super().__init__()
         self.enc = AutoModel.from_pretrained(base)
         d = self.enc.config.hidden_size
-
-        # 1) Token classification (BIO)
         self.ner = NERHead(d, num_ner)
-
-        # 2) Span pooling
         self.span_pool = MaxSpanPool
-
-        # 3) Cross-attention-pointer (events -> times)
         self.ca = CrossAttention(d=d, heads=heads)
-
-        # 4) Event–Event relation head
         self.ee = EEHead(d, n_labels=ee_labels)
-
-        # Loss functions
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
-        self.loss_nll = nn.NLLLoss(ignore_index=-100)          # for CA
+
+    def save(self, save_path):
+        torch.save({'model_state_dict':self.state_dict()}, save_path)
 
     def forward(self, input_ids, attention_mask,
                 # --- Event and Time Locations
-                ev_starts, ev_ends, ev_mask, ti_starts, ti_ends, ti_mask,
+                ev_starts=None, ev_ends=None, ev_mask=None, ti_starts=None, ti_ends=None, ti_mask=None, e_sent_ids=None, t_sent_ids=None,
                 # --- Gold Labels
-                ner_gold_labels, ev_ti_gold, ee_rel_gold, ee_mask):
-        
+                ner_gold_labels=None, ev_ti_gold=None, ee_rel_gold=None, ee_mask=None):
+
         out = {}
         H = self.enc(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
 
@@ -212,70 +214,68 @@ class JointTemporalModel(nn.Module):
             ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), 
                                     ner_gold_labels.view(-1))
             out["ner_loss"] = ner_loss
+        else:
+            ner_loss = 0
 
         # 2) Span Max Pooling
+        if None in [ev_starts, ev_ends, ti_starts, ti_ends]:
+            ev_starts, ev_ends, ti_starts, ti_ends = NERHead.decode(ner_out["logits"])
+
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
         hT = self.span_pool(H, ti_starts, ti_ends)  # [B, K, d] for times
 
-        # 3) Cross-Attention-Pointer (events -> times)
-        ev_ti_gold = ev_ti_gold.clone()
-        ev_ti_gold[~ev_mask] = -100   # ignore padded events
-        # centers in token space for each span
-        e_center = (ev_starts + ev_ends - 1) / 2.0     # [B,Ne]
-        t_center = (ti_starts + ti_ends - 1) / 2.0     # [B,Nt]
-        dist = (e_center.unsqueeze(2) - t_center.unsqueeze(1)).abs()   # [B,Ne,Nt]
-        tau = 20.0  # temperature in tokens (tune 10–40)
-        prior = -dist / tau                                              # [B,Ne,Nt]
+        # 3) Cross-Attention (events + times)
+        ca_out = self.ca(hE, hT)
+        ptr_probs = ca_out["ptr_probs"]  # [B, Ne, Nt+1]
+        hE_ref = ca_out["hE_refined"]
+        hT_e = ca_out["h_time_exp"]
+        out["ptr_probs"] = ptr_probs
+        if ev_ti_gold is not None:
+            ptr_loss = self.loss_ce(ptr_probs.view(-1, ptr_probs.size(-1)), 
+                                    ev_ti_gold.view(-1))
+            out["ptr_loss"] = ptr_loss
+        else:
+            ptr_loss = 0
 
-        ca_out = self.ca(hE, hT, key_padding_mask_T=~ti_mask, attn_bias=prior)
-        ca_probs = ca_out["ptr_probs"]
-        logp = (ca_probs + 1e-12).log() 
-        ca_loss = self.loss_nll(logp.view(-1, logp.size(-1)), 
-                                ev_ti_gold.view(-1))
-        out["ptr_idx"] = ca_out["ptr_idx"]
-        out['ptr_probs'] = ca_probs
-        out["ca_loss"] = ca_loss
+        # 5) Event-Event Temporal Relation Head
+        if ee_rel_gold is not None:
+            ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
+            ee_logits = self.ee(hE, hT_e, ee_pairs)         # [B, M, C] (optionally use hE — instead of hE_ref)
+            out["ee_logits"] = ee_logits
+            ee_labels = ee_rel_gold[:, :, 1].clone()        # [B, M]
+            ee_labels[~ee_mask] = -100                      # <-- mask padded pairs
+            ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
+                                    ee_labels.view(-1))
+            out["ee_loss"] = ee_loss
+        else:
+            B, Ne, d = hE.shape
+            row_idx, col_idx = torch.triu_indices(Ne, Ne, offset=1)
+            try:
+                batch_idx = torch.arange(B).unsqueeze(1).expand(B, row_idx.size(1))
+            except:
+                batch_idx = torch.arange(B).unsqueeze(1).expand(B, row_idx.size(0))
+            ee_pairs = torch.stack([row_idx.expand(B, -1), col_idx.expand(B, -1)], dim=-1)
+            ee_logits = self.ee(hE_ref, hT_e, ee_pairs)   
+            out["ee_logits"] = ee_logits
+            ee_loss = 0
 
-        # 4) Event-Event Temporal Relation Head
-        ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
-        ee_labels = ee_rel_gold[:, :, 1].clone()        # [B, M]
-        ee_labels[~ee_mask] = -100                      # <-- mask padded pairs
-        hT_e = ca_out["h_time_exp"]                     # [B, Ne, d]
-        # (optionally use refined hE — see below)
-        hE_for_ee = ca_out["hE_refined"]
-        ee_logits = self.ee(hE_for_ee, hT_e, ee_pairs)         # [B, M, C]
-        out["ee_logits"] = ee_logits
-        ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
-                            ee_labels.view(-1))
-        out["ee_loss"] = ee_loss
-
-        out["loss"] = ner_loss + ca_loss + ee_loss
+        out["loss"] = (ner_loss + ptr_loss + ee_loss)/3
 
         return out
     
     def evaluate_dataloader(self, dev_loader, id2label_ner, id2label_ee, *, ee_average="micro"):
-        """
-        Evaluate over a dataloader.
-        - NER: seqeval F1 (entity-level over BIO tags)
-        - Event→Time: pointer@1 accuracy
-        - EE: F1 (macro by default; set ee_average='micro' or 'weighted' if desired)
-
-        Args:
-        id2label_ner: dict[int->str] for BIO tags
-        id2label_ee : dict[int->str] for EE labels (not strictly needed for F1 on ids)
-        ee_average  : 'macro' | 'micro' | 'weighted'
-        """
         self.eval()
         device = next(self.parameters()).device
 
         # NER (seqeval expects list[list[str]])
         ner_true_seqs, ner_pred_seqs = [], []
-
         # Pointer metrics
         et_correct, et_total = 0, 0
-
         # EE F1 collections
         ee_true_all, ee_pred_all = [], []
+        # Eval Loss
+        loss = []
+        ner_loss, ptr_loss, ee_loss = 0, 0, 0
 
         with torch.no_grad():
             for batch in dev_loader:
@@ -285,8 +285,8 @@ class JointTemporalModel(nn.Module):
                 out = self.forward(
                     input_ids=batch["input_ids"],
                     attention_mask=batch["attention_mask"],
-                    ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"],
-                    ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"],
+                    ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"], e_sent_ids=batch["e_sent_ids"],
+                    ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"], t_sent_ids=batch["t_sent_ids"],
                     ner_gold_labels=batch["ner_labels"],
                     ev_ti_gold=batch["ev_ti_gold"],
                     ee_rel_gold=batch["ee_triples"],
@@ -312,20 +312,13 @@ class JointTemporalModel(nn.Module):
                     ner_pred_seqs.append(pred_seq)
 
                 # -------- Event→Time pointer@1 --------
-                ptr_pred = out["ptr_idx"]       # [B,Ne]
+                ptr_pred = out["ptr_probs"].argmax(-1)       # [B,Ne]
                 ev_mask  = batch["ev_mask"]                   # [B,Ne] (bool)
                 gold_ptr = batch["ev_ti_gold"]                # [B,Ne] (long)
 
                 valid = ev_mask & (gold_ptr != -100)
                 et_correct += (ptr_pred[valid] == gold_ptr[valid]).sum().item()
-                et_total   += valid.sum().item()
-
-                ti_mask = batch["ti_mask"]                  # [B,Nt] (bool)
-                ev_ti_gold = batch["ev_ti_gold"]            # [B,Nt] (long)
-                none_idx = ti_mask.sum(-1)   # [B], each element is Nt for that example
-                valid = (ev_mask) & (ev_ti_gold != -100)
-                count = 0
-                whole = 0
+                et_total   += valid.sum().item()                
 
                 # -------- EE F1 --------
                 ee_logits = out["ee_logits"]                  # [B,M,C]
@@ -337,76 +330,78 @@ class JointTemporalModel(nn.Module):
                     ee_true_all.extend(ee_gold[ee_mask].tolist())
                     ee_pred_all.extend(ee_pred[ee_mask].tolist())
 
+                loss.append(out["loss"].item())
+                ner_loss += out.get("ner_loss", 0).item()
+                ptr_loss += out.get("ptr_loss", 0).item()
+                ee_loss += out.get("ee_loss", 0).item()
+
         metrics = {}
-        # NER seqeval F1
         metrics["ner_f1"]  = seqeval_f1(ner_true_seqs, ner_pred_seqs) if ner_true_seqs else 0.0
         print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
-        # Pointer@1 accuracy
         metrics["ptr_acc"] = (et_correct / et_total) if et_total > 0 else 0.0
-        # EE F1 (scikit-learn, on label ids)
-        if ee_true_all:
-            metrics["ee_f1"] = sk_f1(ee_true_all, ee_pred_all, average=ee_average)
-            print(sk_cr(ee_true_all, ee_pred_all, target_names=id2label_ee.values(), digits=4))
-        else:
-            metrics["ee_f1"] = 0.0
-
+        metrics["ee_f1"] = sk_f1(ee_true_all, ee_pred_all, average=ee_average)
+        print(sk_cr(ee_true_all, ee_pred_all, target_names=id2label_ee.values(), digits=4))
+        metrics["eval_loss"] = sum(loss) / len(loss)
+        metrics["ner_loss"] = ner_loss / len(loss)
+        metrics["ptr_loss"] = ptr_loss / len(loss)
+        metrics["ee_loss"] = ee_loss / len(loss)
         return metrics
     
+    @torch.no_grad()
+    def predict(self, batch):
+        self.eval()
+        out = self.forward(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
+        preds = {}
+
+        # --- NER decode ---
+        ner_ids = out["ner_logits"].argmax(-1).cpu()   # [B,L]
+        ner_tags = [
+            [ID2LABEL_EVNER[i.item()] for i in row if i.item() != -100]
+            for row in ner_ids
+        ]
+        preds["ner_tags"] = ner_tags
+
+        # --- Event→Time pointer decode ---
+        ptr_ids = out["ptr_probs"].argmax(-1).cpu()     # [B,Ne]
+        preds["event_time_idx"] = ptr_ids
+
+        # --- Event–Event temporal relation decode ---
+        ee_ids = out["ee_logits"].argmax(-1).cpu() # [B,M]
+        ee_labels = [
+            [ID2LABEL_EE[i.item()] for i in row]
+            for row in ee_ids
+        ]
+        preds["ee_relations"] = ee_labels
+
+        return preds
+    
 if __name__=="__main__":
-    from Utils import collator
-    ex1 = {
-        "tokens": [["Alpha", "won", "on", "Friday", "at", "noon", "."]],
-        "bio_tags": [["O","B-EVENT","O","B-DATE","O","B-TIME","O"]],
-        "instances": [
-            {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},           # "won"
-            {"type":"DATE","sent_id":0,"offset":[3,4],"id":10},           # "Friday"
-            {"type":"TIME","sent_id":0,"offset":[5,6],"id":11},           # "noon"
-            {"type":"EVENT","sent_id":0,"offset":[0,1],"id":1},           # "Alpha" (treat as event for demo)
-        ],
-        "event_times": [
-            {"event":0,"time":10},     # won -> Friday
-            {"event":1,"time":"NONE"}  # Alpha has no time
-        ],
-        "ee_temprels":[
-            {"e1":1,"e2":0,"rel":"BEFORE"}  # Alpha BEFORE won (directional)
-        ]
-    }
-    ex2 = {
-        "tokens": [
-            ["China","bagged","gold","on","Saturday","."],
-            ["Final","starts","Monday","morning","."]
-        ],
-        "bio_tags": [
-            ["O","B-EVENT","B-EVENT","O","B-DATE","O"],
-            ["O","B-EVENT","B-DATE","O","O"]
-        ],
-        "instances": [
-            {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},     # bagged
-            {"type":"EVENT","sent_id":0,"offset":[2,3],"id":1},     # gold
-            {"type":"DATE","sent_id":0,"offset":[4,5],"id":100},    # Saturday
-            {"type":"EVENT","sent_id":1,"offset":[1,2],"id":2},     # starts
-            {"type":"DATE","sent_id":1,"offset":[2,3],"id":101}     # Monday
-        ],
-        "event_times": [
-            {"event":0,"time":100},   # bagged -> Saturday
-            {"event":1,"time":"NONE"},
-            {"event":2,"time":101}    # starts -> Monday
-        ],
-        "ee_temprels":[
-            {"e1":0,"e2":1,"rel":"AFTER"},
-            {"e1":1,"e2":2,"rel":"BEFORE"}
-        ]
-    }
+    # model = TIEModel().to("cuda")
+    # model.save("results/tie_model/")
 
-    batch=collator([ex1, ex2], {"B-DATE":0, "B-DURATION":1, "B-EVENT": 2, "B-TIME": 3, "I-DATE":4, "I-DURATION":5, "I-EVENT":6, "I-TIME":7, "O":8}, {"AFTER": 0, "BEFORE": 1, "CONTAINS": 2, "DURING":3, "EQUALS":4, "IDENTITY":5, "OVERLAPS":6})
+    load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model.pt")
+    model = TIEModel()  
+    model.load_state_dict(load['model_state_dict'])
+    from TIEUtils import TemporalDataset, collator
+    from torch.utils.data import DataLoader 
+    from transformers import AutoTokenizer
+    ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
+          "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 
+                        {"offset": [8, 9], "type": "EVENT", "sent_id": 0, "text": "blast", "id": 1}, 
+                        {"offset": [14, 15], "type": "EVENT", "sent_id": 0, "text": "said", "id": 2}, 
+                        {"value": "2006-11-29", "type": "TIME", "offset": [1, 0], "id": 0}, 
+                        {"value": "2006-11-22TMO", "type": "DATE", "sent_id": 0, "offset": [10, 12], "text": "Wednesday morning", "id": 1}], 
+                        "event_times": [{"event": 1, "time": 1}, 
+                                        {"event": 0, "time": "NONE"}, 
+                                        {"event": 2, "time": "NONE"}], 
+                        "ee_temprels": [{"e1": 0, "e2": 2, "rel": "DURING"}], 
+                        "bio_tags": [["O", "O", "O", "O", "O", "O", "B-EVENT", "O", "B-EVENT", "O", "B-DATE", "I-DATE", "O", "O", "B-EVENT", "O"]]}
+    TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
+    encod = TOKENIZER(ex["text"][0], is_split_into_words=True, return_tensors="pt", padding=True, truncation=True)
+    batch = {"input_ids":torch.tensor(encod["input_ids"]), "attention_mask":torch.tensor(encod["attention_mask"])}
 
-    model = JointTemporalModel()
-    out   = model(input_ids=batch["input_ids"],
-                  attention_mask=batch["attention_mask"],
-                  ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"],
-                  ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"],
-                  ner_gold_labels=batch["ner_labels"],
-                  ev_ti_gold=batch["ev_ti_gold"],
-                  ee_rel_gold=batch["ee_triples"],)
-    print(out["loss"], out["ner_logits"].shape, out["ca_probs"].shape, out["ee_logits"].shape)
-
+    preds = model.predict(batch)
+    temprels = preds["ee_relations"]
+    ets = preds['event_time_idx']
+    ner = preds["ner_tags"]
+    print(temprels, ets, ner)

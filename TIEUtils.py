@@ -7,7 +7,7 @@ import os
 import json
 from copy import deepcopy
 
-TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True,)
+TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 TIMEX_TYPES = {"DATE", "TIME", "SET", "DURATION"}
 
@@ -83,6 +83,7 @@ def collator(examples, label2id_ner, label2id_ee):
     # ---------- 4) Build EVENT/TIMEX spans (subword indices) ----------
     ev_starts, ev_ends, ti_starts, ti_ends = [], [], [], []
     ev_lens, ti_lens = [], []
+    ev_sent_ids, ti_sent_ids = [], []  # for positional prior
     ev2idx_per_ex, timex2idx_per_ex = [], []
 
     for bi, ex in enumerate(examples):
@@ -90,18 +91,18 @@ def collator(examples, label2id_ner, label2id_ee):
         fs, le = _first_last_subtokens(word_ids_list[bi])
         events, times = [], []
         ev2idx, tx2idx = {}, {}
+        in_e_si, in_t_si = [], []
 
         for inst in ex.get("instances", []):
             typ = inst["type"]
+            s_id = inst.get("sent_id", -1)
             # sentence-local offsets -> global word indices
             if "sent_id" in inst:
                 base = bases[inst["sent_id"]]
             else:
                 base = 0  # already global
 
-            wstart, wend = inst["offset"]  # word indices, [start, end) or [start, end]? Assuming [start, end) is safer.
-            # If your offsets are [start, end_exclusive], keep as-is.
-            # If they are [start, end_inclusive], switch to: wend = wend + 1
+            wstart, wend = inst["offset"]  # word indices, [start, end)
 
             gstart, gend = wstart + base, wend + base
 
@@ -117,9 +118,12 @@ def collator(examples, label2id_ner, label2id_ee):
             if typ == "EVENT":
                 ev2idx[iid if iid is not None else len(events)] = len(events)
                 events.append((s_sub, e_sub_excl))
+                in_e_si.append(s_id if s_id != -1 else -1)
             elif typ in TIMEX_TYPES:
                 tx2idx[iid if iid is not None else len(times)] = len(times)
                 times.append((s_sub, e_sub_excl))
+                in_t_si.append(s_id if s_id != -1 else -1)
+                
 
         ev2idx_per_ex.append(ev2idx)
         timex2idx_per_ex.append(tx2idx)
@@ -127,25 +131,31 @@ def collator(examples, label2id_ner, label2id_ee):
         if events:
             ev_starts.append(torch.tensor([s for s, _ in events], dtype=torch.long))
             ev_ends.append(torch.tensor([e for _, e in events], dtype=torch.long))
+            ev_sent_ids.append(torch.tensor(in_e_si, dtype=torch.long))
             ev_lens.append(len(events))
         else:
             ev_starts.append(torch.tensor([0], dtype=torch.long))
             ev_ends.append(torch.tensor([1], dtype=torch.long))
+            ev_sent_ids.append(torch.tensor([-1], dtype=torch.long))
             ev_lens.append(0)
 
         if times:
             ti_starts.append(torch.tensor([s for s, _ in times], dtype=torch.long))
             ti_ends.append(torch.tensor([e for _, e in times], dtype=torch.long))
+            ti_sent_ids.append(torch.tensor(in_t_si, dtype=torch.long))
             ti_lens.append(len(times))
         else:
             ti_starts.append(torch.tensor([0], dtype=torch.long))
             ti_ends.append(torch.tensor([1], dtype=torch.long))
+            ti_sent_ids.append(torch.tensor([-1], dtype=torch.long))
             ti_lens.append(0)
 
-    ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=0)
-    ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=1)
-    ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=0)
-    ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=1)
+    ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=-1)
+    ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=-1)
+    ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=-1)
+    ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=-1)
+    ev_sent_ids = torch.nn.utils.rnn.pad_sequence(ev_sent_ids, batch_first=True, padding_value=-1)
+    ti_sent_ids = torch.nn.utils.rnn.pad_sequence(ti_sent_ids, batch_first=True, padding_value=-1)
 
     Ne_max = ev_starts.size(1)
     Nt_max = ti_starts.size(1)
@@ -220,8 +230,8 @@ def collator(examples, label2id_ner, label2id_ee):
         "input_ids":      input_ids,
         "attention_mask": attention_mask,
         "ner_labels":     ner_labels,                     # [B, L]
-        "ev_starts":      ev_starts,  "ev_ends":  ev_ends,  "ev_mask": ev_mask,  # [B, Ne], [B, Ne], [B, Ne]
-        "ti_starts":      ti_starts,  "ti_ends":  ti_ends,  "ti_mask": ti_mask,  # [B, Nt], [B, Nt], [B, Nt]
+        "ev_starts":      ev_starts,  "ev_ends":  ev_ends,  "ev_mask": ev_mask,  "e_sent_ids": ev_sent_ids,  # [B, Ne], [B, Ne], [B, Ne]
+        "ti_starts":      ti_starts,  "ti_ends":  ti_ends,  "ti_mask": ti_mask,  "t_sent_ids": ti_sent_ids,  # [B, Nt], [B, Nt], [B, Nt]
         "ev_ti_gold":     ev_ti_gold,                     # [B, Ne], NONE per-example = Nt_real
         "ee_triples":     ee_triples,                     # [B, M, 3] (e1, rel_id, e2)
         "ee_mask":        ee_mask,                        # [B, M]   (True=real)
@@ -248,44 +258,11 @@ def _first_last_subtokens(word_ids):
     last_sub_excl = {w: (idx + 1) for w, idx in last_sub.items()}
     return first_sub, last_sub_excl
 
-
-# def ner_metrics(predictions, labels, id2label):
-#     # Remove ignored index (special tokens)
-#     true_predictions = [
-#         [id2label[p] for (p, l) in zip(prediction, label) if l != -100]
-#         for prediction, label in zip(predictions, labels)
-#     ]
-#     true_labels = [
-#         [id2label[l] for (p, l) in zip(prediction, label) if l != -100]
-#         for prediction, label in zip(predictions, labels)
-#     ]
-#     return {
-#         "precision": precision_score(true_labels, true_predictions),
-#         "recall": recall_score(true_labels, true_predictions),
-#         "f1": f1_score(true_labels, true_predictions),
-#         "classification_report": classification_report(true_labels, true_predictions),
-#     }
-
-# def temprel_metrics(predictions, labels, id2label):
-#     return
-
 class TemporalDataset(Dataset):
-    def __init__(self, path):           # list of JSON dicts
+    def __init__(self, path):        
         if path.endswith(".json"):
             with open(path, "r") as f:
                 self.examples=[json.loads(line) for line in f]
-    def __len__(self): return len(self.examples)
-    def __getitem__(self, i): return deepcopy(self.examples[i])
-
-class NormaliseDataset(Dataset):
-    def __init__(self, examples):           # list of JSON dicts
-        self.examples = examples
-    def __len__(self): return len(self.examples)
-    def __getitem__(self, i): return deepcopy(self.examples[i])
-
-class GeoDataset(Dataset):
-    def __init__(self, examples):           # list of JSON dicts
-        self.examples = examples
     def __len__(self): return len(self.examples)
     def __getitem__(self, i): return deepcopy(self.examples[i])
 
@@ -296,7 +273,7 @@ if __name__ == "__main__":
         "instances": [
             {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},           # "won"
             {"type":"DATE","sent_id":0,"offset":[3,4],"id":10},           # "Friday"
-            {"type":"TIME","sent_id":0,"offset":[5,6],"id":11},           # "noon"
+            {"type":"DURATION","sent_id":0,"offset":[5,6],"id":11},           # "noon"
             {"type":"EVENT","sent_id":0,"offset":[0,1],"id":1},           # "Alpha" (treat as event for demo)
         ],
         "event_times": [
@@ -334,5 +311,28 @@ if __name__ == "__main__":
         ]
     }
 
-    out=collator([ex1, ex2], {"B-DATE":0, "B-DURATION":1, "B-EVENT": 2, "B-TIME": 3, "I-DATE":4, "I-DURATION":5, "I-EVENT":6, "I-TIME":7, "O":8}, {"AFTER": 0, "BEFORE": 1, "CONTAINS": 2, "DURING":3, "EQUALS":4, "IDENTITY":5, "OVERLAPS":6})
+    ex3 = {"text": [["China", "China", "bagged", "bagged", "tally", "tally", "shooting", "shooting", "Saturday", "Saturday", "won", "won", "decides", " ", "the", "winner", "of", "the", "team", "event", "."], 
+                    ["The", "individual", "Trap", "final", "will", "be", "held", "held", "Saturday", "Saturday"]], 
+           "instances": [{"offset": [2, 3], "type": "EVENT", "sent_id": 0, "text": "bagged", "id": 0}, 
+                         {"offset": [4, 5], "type": "EVENT", "sent_id": 0, "text": "tally", "id": 1}, 
+                         {"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "shooting", "id": 2}, 
+                         {"offset": [10, 11], "type": "EVENT", "sent_id": 0, "text": "won", "id": 3}, 
+                         {"offset": [12, 13], "type": "EVENT", "sent_id": 0, "text": "decides", "id": 4}, 
+                         {"offset": [6, 7], "type": "EVENT", "sent_id": 1, "text": "held", "id": 5}, 
+                         {"value": "2006-12-02", "type": "TIME", "offset": [1, 0], "id": 0}, 
+                         {"value": "2006-12-09", "type": "DURATION", "sent_id": 0, "offset": [8, 9], "text": "Saturday", "id": 1}, 
+                         {"value": "2006-12-09", "type": "DATE", "sent_id": 1, "offset": [8, 9], "text": "Saturday", "id": 2}], 
+           "event_times": [{"event": 5, "time": 2}, 
+                           {"event": 2, "time": 1}, 
+                           {"event": 0, "time": "NONE"}, 
+                           {"event": 1, "time": "NONE"}, 
+                           {"event": 3, "time": "NONE"}, 
+                           {"event": 4, "time": "NONE"}], 
+           "ee_temprels": [{"e1": 3, "e2": 4, "rel": "AFTER"}, {"e1": 0, "e2": 2, "rel": "AFTER"}, {"e1": 0, "e2": 1, "rel": "AFTER"}], 
+           "bio_tags": [["O", "O", "B-EVENT", "O", "B-EVENT", "O", "B-EVENT", "O", "B-DURATION", "O", "B-EVENT", "O", "B-EVENT", "O", "O", "O", "O", "O", "O", "O", "O"], ["O", "O", "O", "O", "O", "O", "B-EVENT", "O", "B-DATE", "O"]]}
+
+    from globals import LABEL2ID_EVNER, LABEL2ID_EE
+
+    out=collator([ex3], LABEL2ID_EVNER, LABEL2ID_EE)
     print(out)
+    print(out['ner_labels'])

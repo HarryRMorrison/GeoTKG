@@ -1,92 +1,39 @@
-import spacy
-from Resolvers import reconstruct
+from Handler import Handler
 
 class GeoTKGPipeline:
-    def __init__(self, DCT, coref_resolver, geo_ner, evt_ner, time_norm):#, temp_rel):
+    def __init__(self, DCT, geo_ner, evt_ner, time_norm):#, temp_rel):
         self.DCT = DCT
-        self.CorefResolver = coref_resolver
         self.GeoNER = geo_ner
-        self.EventTimeNER = evt_ner
-        self.TimeNorm = time_norm
-        #self.TempRel = temp_rel
-
-    @staticmethod
-    def spacify(resolved_text):
-        nlp = spacy.load("en_core_web_trf")
-        doc = nlp(resolved_text)
-        sentences = []
-        for sent in doc.sents:
-            sentences.append(sent.text)
-        return sentences
+        self.TIEModel = evt_ner
+        self.NormModel = time_norm
+        self.Handler = Handler()
 
     def pred(self, unresolved_text):
-        resolved_text = self.CorefResolver(unresolved_text)
+        # 1) Coreference Resolution
+        resolved_text = self.Handler.CorefResolve(unresolved_text)
         print(resolved_text)
 
-        # 1. Predict BIO sequences
-        #   1.1 Geo Entities and Timescales
-        geo_preds = self.GeoNER.predict(resolved_text)
-        geo_entity_locs = self.GeoNER.get_geo_entity_locations(geo_preds)
-        geo_time_locs = self.GeoNER.get_geo_entity_locations(geo_preds, bi_map={5:11})
-        
-        #   1.2 Events and Time Expressions
-        event_time_preds = self.EventTimeNER.predict(resolved_text)
-        event_locs = self.EventTimeNER.get_event_locations(event_time_preds)
-        timex_locs, timex_types = self.EventTimeNER.get_event_locations(event_time_preds, bi_map={0:5, 1:6, 3:8, 4:9}, return_types=True)
+        # 2a) Temporal Information Extraction
 
-        #   1.3 Reconstructing original text with BIO tags
-        tokens, original = self.GeoNER.decode(resolved_text)
-        text, geo_entity_locs, geo_time_locs, event_locs, timex_locs = reconstruct(tokens, original, geo_time_locs, geo_entity_locs, event_locs, timex_locs)
 
-        # 2. Normalise Times
-        #   2.1 Preprocessing to create inputs
-        self.TimeNorm.preprocessing(text, timex_locs, geo_time_locs, timex_types, self.DCT)
+        # 2b) Temporal Transitivity Event Filtering
 
-        #   2.2 Predicting normalised times
-        cal_times, geo_times = self.TimeNorm.predict()
-        print("------- Reconstructed Text --------")
-        print(text)
-        print("----- Detected Calender Times -----")
-        for loc, t_type in zip(cal_times, timex_types):
-            print(f"LOC: {loc[0]}, TEXT: {text[loc[0]]}, VAL: {loc[1]}, TYPE: {t_type}")
 
-        print("------- Detected Geo Times --------")
-        for loc in geo_times:
-            print(f"LOC: {loc[0]}, TEXT: {text[loc[0]]}, VAL: {loc[1]}")
+        # 2c) Geological Entity Extraction
 
-        print("------ Detected Geo Entities ------")
-        for loc in geo_entity_locs:
-            print(f"LOC: {loc}, TEXT: {text[loc]}")
 
-        print("--------- Detected Events ---------")
-        for loc in event_locs:
-            print(f"LOC: {loc}, TEXT: {text[loc]}")
+        # 3a) Semantic Role Labelling and Node Extraction
 
-        # sentences = GeoTKGPipeline.spacify(resolved_text)
-        # for sent in sentences:
-            # 3. Predict E-T and E-E Temporal Relations
-            #   3.1 Preprocessing to create inputs
-            # self.TempRel.preprocessing(text, cal_times, timex_types, geo_times, event_locs, self.DCT)
 
-            # #   3.2 
-            # ET_preds, EE_preds = self.TempRel.predict()
+        # 3b) Time Normalisation
 
-            # print(text)
-            # id2label=self.TempRel.model.config.id2label
 
-            # print("-----ET-----")
+        # 4) KG Node Relationship Insertion
 
-            # for (t,e),rel in ET_preds:
-            #     print(text[t],id2label[rel],text[e])
-            
-            # print("-----EE-----")
-
-            # for (e1,e2),rel in EE_preds:
-            #     print(text[e1],id2label[rel],text[e2])
         return
 
 if __name__=="__main__":
-    from Model import NERModel, TimexNormModel, TempRelModel
+    from TimexNormModel import NERModel, TimexNormModel, TempRelModel
     from Resolvers import CorefResolve
     model = GeoTKGPipeline(
         DCT = "2024-03-22",

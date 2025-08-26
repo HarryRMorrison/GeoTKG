@@ -307,7 +307,7 @@ class TimeMLReader(Reader):
                     'offset': (start, len(sentence)),
                     'text': elem.text
                 }
-            tail = [bit.text for bit in tokenizer(elem.text.replace("\n",""))]
+            tail = [bit.text for bit in tokenizer(elem.tail.replace("\n",""))]
             tail_doc = nlp(elem.tail.replace("\n",""))
             if len(list(tail_doc.sents)) > 1:
                 text.append(sentence+[str(tok) for tok in list(tail_doc.sents)[0]])
@@ -473,11 +473,45 @@ class TweetsReader(TimeMLReader):
                 out[current_folder] = {"norm_data": norm_data}
                 norm_data = []
                 current_folder = file.split('\\')[2]
-            text, events, timexs = TweetsReader.get_doc_and_loc(ET.parse(file).getroot(), {})
+            text, timexs = TweetsReader.get_doc_and_timex(ET.parse(file).getroot())
             norms = TweetsReader.get_timex_values(text, timexs)
             norm_data.extend(norms)
 
         return out
+    
+    @staticmethod
+    def get_doc_and_timex(root):
+        nlp = English()
+        nlp.add_pipe("sentencizer")
+        tokenizer = nlp.tokenizer
+        doc = root.find('TEXT')
+        dct = root.find('DCT').find('TIMEX3')
+        text, timexs, sentence, sentid = [], {}, [], 0
+        timexs['t0'] = {'value':dct.attrib.get('value'), 'type':dct.attrib.get('type'), 'offset':(1, len(text))}
+        
+        for elem in doc.iter():
+            start = len(sentence)
+            sentence.extend([bit.text for bit in tokenizer(elem.text.replace("\n",""))])
+            if elem.tag == 'TIMEX3':
+                timexs[elem.attrib.get('tid')] = {
+                    'value': elem.attrib.get('value'),
+                    'type': elem.attrib.get('type'),
+                    'sent_id':sentid,
+                    'offset': (start, len(sentence)),
+                    'text': elem.text
+                }
+            tail = [bit.text for bit in tokenizer(elem.tail.replace("\n",""))]
+            tail_doc = nlp(elem.tail.replace("\n",""))
+            if len(list(tail_doc.sents)) > 1:
+                text.append(sentence+[str(tok) for tok in list(tail_doc.sents)[0]])
+                sentence = []
+                tail = [str(tok) for tok in list(tail_doc.sents)[1]]
+                sentid += 1
+                sentence.extend(tail)
+            else:
+                sentence.extend(tail)
+        text.append(sentence)
+        return text, timexs
 
     @staticmethod
     def get_timex_values(text, timexs):

@@ -150,10 +150,10 @@ def collator(examples, label2id_ner, label2id_ee):
             ti_sent_ids.append(torch.tensor([-1], dtype=torch.long))
             ti_lens.append(0)
 
-    ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=-1)
-    ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=-1)
-    ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=-1)
-    ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=-1)
+    ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=0)
+    ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=1)
+    ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=0)
+    ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=1)
     ev_sent_ids = torch.nn.utils.rnn.pad_sequence(ev_sent_ids, batch_first=True, padding_value=-1)
     ti_sent_ids = torch.nn.utils.rnn.pad_sequence(ti_sent_ids, batch_first=True, padding_value=-1)
 
@@ -333,6 +333,5 @@ if __name__ == "__main__":
 
     from globals import LABEL2ID_EVNER, LABEL2ID_EE
 
-    out=collator([ex3], LABEL2ID_EVNER, LABEL2ID_EE)
+    out=collator([ex3, ex2], LABEL2ID_EVNER, LABEL2ID_EE)
     print(out)
-    print(out['ner_labels'])

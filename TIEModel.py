@@ -110,7 +110,7 @@ class CrossAttention(nn.Module):
         self.none_token = nn.Parameter(torch.zeros(1, 1, d))  # learned NONE
         self.ln = nn.LayerNorm(d)
 
-    def forward(self, hE, hT, attn_bias=None):
+    def forward(self, hE, hT, key_padding_mask, attn_mask):
         """
         hE: [B, Ne, d] events -> queries
         hT: [B, Nt, d] times  -> keys/values
@@ -119,19 +119,19 @@ class CrossAttention(nn.Module):
                    [B, Ne, Nt+1] or [B*heads, Ne, Nt+1] (PyTorch 2.x)
         """
         B = hE.size(0)
+        Nt = hT.size(1)
         # append NONE
         none = self.none_token.expand(B, 1, -1)          # [B,1,d]
         T_aug = torch.cat([hT, none], dim=1)             # [B, Nt+1, d]
+        
+        # Altering mask to account for none
+        none_mask = torch.full((B,1), True, dtype=torch.bool).to(device="cuda")
+        kp_mask = ~torch.cat([key_padding_mask, none_mask], dim=1)
 
-        # attn_mask: additive bias (float) or bool; if float, negative values downweight
-        am = None
-        if attn_bias is not None:        # [B,Ne,Nt]
-            zero = attn_bias.new_zeros(B, hE.size(1), 1)
-            attn_bias = torch.cat([attn_bias, zero], -1)            # [B,Ne,Nt+1]
-            H = self.mha.num_heads
-            am = attn_bias.repeat_interleave(H, dim=0).to(hE.dtype) # [B*H,Ne,Nt+1]
+        # Switching to correct syntax
+        atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt+1).repeat(self.mha.num_heads, 1, 1)
 
-        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=None, attn_mask=am, need_weights=True, average_attn_weights=True)
+        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=kp_mask, attn_mask=None, need_weights=True, average_attn_weights=True)
         out = self.ln(out + hE)
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt+1] (avg across heads); with dropout=0, this sums to 1 → pointer probs
@@ -225,7 +225,7 @@ class TIEModel(nn.Module):
         hT = self.span_pool(H, ti_starts, ti_ends)  # [B, K, d] for times
 
         # 3) Cross-Attention (events + times)
-        ca_out = self.ca(hE, hT)
+        ca_out = self.ca(hE, hT, key_padding_mask=ti_mask, attn_mask = ev_mask)
         ptr_probs = ca_out["ptr_probs"]  # [B, Ne, Nt+1]
         hE_ref = ca_out["hE_refined"]
         hT_e = ca_out["h_time_exp"]
@@ -234,6 +234,26 @@ class TIEModel(nn.Module):
             ptr_loss = self.loss_ce(ptr_probs.view(-1, ptr_probs.size(-1)), 
                                     ev_ti_gold.view(-1))
             out["ptr_loss"] = ptr_loss
+            valid = ev_mask & (ev_ti_gold != -100)
+            nts = []
+            fou = False
+            for exa in ti_mask:
+                for i, bol in enumerate(exa):
+                    if not fou and bol == False:
+                        nts.append(i+1)
+                        fou = True
+                if not fou:
+                    nts.append(i+1)
+                fou = False
+            is_none = 0
+            tot = 0
+            for i, ex in enumerate(ptr_probs):
+                for j, ans in enumerate(ex.argmax(-1)):
+                    if valid[i,j]==True:
+                        if ans == nts[i]:
+                            is_none += 1
+                        tot += 1
+            out['none_r'] = is_none/tot
         else:
             ptr_loss = 0
 
@@ -276,7 +296,8 @@ class TIEModel(nn.Module):
         # Eval Loss
         loss = []
         ner_loss, ptr_loss, ee_loss = 0, 0, 0
-
+        real_corr, real_none = 0, 0
+        tot = 0
         with torch.no_grad():
             for batch in dev_loader:
                 # move to device
@@ -318,7 +339,27 @@ class TIEModel(nn.Module):
 
                 valid = ev_mask & (gold_ptr != -100)
                 et_correct += (ptr_pred[valid] == gold_ptr[valid]).sum().item()
-                et_total   += valid.sum().item()                
+                et_total   += valid.sum().item()
+
+                nts = []
+                fou = False
+                for exa in batch["ti_mask"]:
+                    for i, bol in enumerate(exa):
+                        if not fou and bol == False:
+                            nts.append(i+1)
+                            fou = True
+                    if not fou:
+                        nts.append(i+1)
+                    fou = False
+                for i, ex in enumerate(out["ptr_probs"]):
+                    for j, ans in enumerate(ex.argmax(-1)):
+                        if valid[i,j] == True:
+                            if ans==gold_ptr[i,j]:
+                                if ans != nts[i]:
+                                    real_corr += 1
+                                else:
+                                    real_none += 1
+                            tot += 1
 
                 # -------- EE F1 --------
                 ee_logits = out["ee_logits"]                  # [B,M,C]
@@ -334,7 +375,9 @@ class TIEModel(nn.Module):
                 ner_loss += out.get("ner_loss", 0).item()
                 ptr_loss += out.get("ptr_loss", 0).item()
                 ee_loss += out.get("ee_loss", 0).item()
-
+        out['real_cor'] = real_corr/tot
+        print("Real correct PTR: ", out['real_cor'])
+        print("None correct PTR: ", real_none/tot)
         metrics = {}
         metrics["ner_f1"]  = seqeval_f1(ner_true_seqs, ner_pred_seqs) if ner_true_seqs else 0.0
         print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
@@ -346,62 +389,79 @@ class TIEModel(nn.Module):
         metrics["ptr_loss"] = ptr_loss / len(loss)
         metrics["ee_loss"] = ee_loss / len(loss)
         return metrics
-    
-    @torch.no_grad()
-    def predict(self, batch):
-        self.eval()
-        out = self.forward(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
-        preds = {}
 
-        # --- NER decode ---
-        ner_ids = out["ner_logits"].argmax(-1).cpu()   # [B,L]
-        ner_tags = [
-            [ID2LABEL_EVNER[i.item()] for i in row if i.item() != -100]
-            for row in ner_ids
-        ]
-        preds["ner_tags"] = ner_tags
-
-        # --- Event→Time pointer decode ---
-        ptr_ids = out["ptr_probs"].argmax(-1).cpu()     # [B,Ne]
-        preds["event_time_idx"] = ptr_ids
-
-        # --- Event–Event temporal relation decode ---
-        ee_ids = out["ee_logits"].argmax(-1).cpu() # [B,M]
-        ee_labels = [
-            [ID2LABEL_EE[i.item()] for i in row]
-            for row in ee_ids
-        ]
-        preds["ee_relations"] = ee_labels
-
-        return preds
-    
 if __name__=="__main__":
-    # model = TIEModel().to("cuda")
-    # model.save("results/tie_model/")
-
-    load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model.pt")
-    model = TIEModel()  
+    model = TIEModel().to("cuda")
+    load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model_epoch50.pt")
     model.load_state_dict(load['model_state_dict'])
     from TIEUtils import TemporalDataset, collator
-    from torch.utils.data import DataLoader 
-    from transformers import AutoTokenizer
-    ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
-          "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 
-                        {"offset": [8, 9], "type": "EVENT", "sent_id": 0, "text": "blast", "id": 1}, 
-                        {"offset": [14, 15], "type": "EVENT", "sent_id": 0, "text": "said", "id": 2}, 
-                        {"value": "2006-11-29", "type": "TIME", "offset": [1, 0], "id": 0}, 
-                        {"value": "2006-11-22TMO", "type": "DATE", "sent_id": 0, "offset": [10, 12], "text": "Wednesday morning", "id": 1}], 
-                        "event_times": [{"event": 1, "time": 1}, 
-                                        {"event": 0, "time": "NONE"}, 
-                                        {"event": 2, "time": "NONE"}], 
-                        "ee_temprels": [{"e1": 0, "e2": 2, "rel": "DURING"}], 
-                        "bio_tags": [["O", "O", "O", "O", "O", "O", "B-EVENT", "O", "B-EVENT", "O", "B-DATE", "I-DATE", "O", "O", "B-EVENT", "O"]]}
-    TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
-    encod = TOKENIZER(ex["text"][0], is_split_into_words=True, return_tensors="pt", padding=True, truncation=True)
-    batch = {"input_ids":torch.tensor(encod["input_ids"]), "attention_mask":torch.tensor(encod["attention_mask"])}
+    from torch.utils.data import DataLoader
+    label2id_ner = LABEL2ID_EVNER
+    id2label_ner = ID2LABEL_EVNER
+    label2id_ee = LABEL2ID_EE
+    id2label_ee = ID2LABEL_EE
+    cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
+    def collate_fn(examples):
+        return collator(examples, label2id_ner=label2id_ner, label2id_ee=label2id_ee)
+    eval = TemporalDataset(cleandata_path + "eval.json")
+    eval_loader = DataLoader(eval, batch_size=16, shuffle=True, collate_fn=collate_fn)
+    batch_evaluation=model.evaluate_dataloader(eval_loader, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
+    print(f"NER F1={batch_evaluation['ner_f1']:.4f},  PTR={batch_evaluation['ptr_acc']:.4f},  EE F1={batch_evaluation['ee_f1']:.4f}, \nNER Eval Loss={batch_evaluation['ner_loss']:.4f} \nEval Loss={batch_evaluation['eval_loss']:.4f} \nPTR Eval Loss={batch_evaluation['ptr_loss']:.4f} \nEE Eval Loss={batch_evaluation['ee_loss']:.4f}")
+    # from transformers import AutoTokenizer
+    # ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
+    #       "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 
+    #                     {"offset": [8, 9], "type": "EVENT", "sent_id": 0, "text": "blast", "id": 1}, 
+    #                     {"offset": [14, 15], "type": "EVENT", "sent_id": 0, "text": "said", "id": 2}, 
+    #                     {"value": "2006-11-29", "type": "TIME", "offset": [1, 0], "id": 0}, 
+    #                     {"value": "2006-11-22TMO", "type": "DATE", "sent_id": 0, "offset": [10, 12], "text": "Wednesday morning", "id": 1}], 
+    #                     "event_times": [{"event": 1, "time": 1}, 
+    #                                     {"event": 0, "time": "NONE"}, 
+    #                                     {"event": 2, "time": "NONE"}], 
+    #                     "ee_temprels": [{"e1": 0, "e2": 2, "rel": "DURING"}], 
+    #                     "bio_tags": [["O", "O", "O", "O", "O", "O", "B-EVENT", "O", "B-EVENT", "O", "B-DATE", "I-DATE", "O", "O", "B-EVENT", "O"]]}
+    # ex2 = {
+    #     "tokens": [
+    #         ["China","bagged","gold","on","Saturday","."],
+    #         ["Final","starts","Monday","morning","."]
+    #     ],
+    #     "bio_tags": [
+    #         ["O","B-EVENT","B-EVENT","O","B-DATE","O"],
+    #         ["O","B-EVENT","B-DATE","O","O"]
+    #     ],
+    #     "instances": [
+    #         {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},     # bagged
+    #         {"type":"EVENT","sent_id":0,"offset":[2,3],"id":1},     # gold
+    #         {"type":"DATE","sent_id":0,"offset":[4,5],"id":100},    # Saturday
+    #         {"type":"EVENT","sent_id":1,"offset":[1,2],"id":2},     # starts
+    #         {"type":"EVENT","sent_id":1,"offset":[0,1],"id":3},     # final
+    #         {"type":"DATE","sent_id":1,"offset":[2,3],"id":101}     # Monday
+    #     ],
+    #     "event_times": [
+    #         {"event":0,"time":100},   # bagged -> Saturday
+    #         {"event":1,"time":"NONE"},
+    #         {"event":2,"time":101}    # starts -> Monday
+    #     ],
+    #     "ee_temprels":[
+    #         {"e1":0,"e2":1,"rel":"AFTER"},
+    #         {"e1":1,"e2":2,"rel":"BEFORE"}
+    #     ]
+    # }
+    # TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
+    # encod = TOKENIZER(ex["text"][0], is_split_into_words=True, return_tensors="pt", padding=True, truncation=True)
+    # batch = {"input_ids":torch.tensor(encod["input_ids"]), "attention_mask":torch.tensor(encod["attention_mask"])}
 
-    preds = model.predict(batch)
-    temprels = preds["ee_relations"]
-    ets = preds['event_time_idx']
-    ner = preds["ner_tags"]
-    print(temprels, ets, ner)
+    # preds = model.predict(batch)
+    # temprels = preds["ee_relations"]
+    # ets = preds['event_time_idx']
+    # ner = preds["ner_tags"]
+    # print(temprels, ets, ner)
+
+    # batch = collator([ex,ex2], label2id_ner=LABEL2ID_EVNER, label2id_ee=LABEL2ID_EE)
+    # model.forward(input_ids=batch["input_ids"],
+    #             attention_mask=batch["attention_mask"],
+    #             ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"], e_sent_ids=batch["e_sent_ids"],
+    #             ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"], t_sent_ids=batch["t_sent_ids"],
+    #             ner_gold_labels=batch["ner_labels"],
+    #             ev_ti_gold=batch["ev_ti_gold"],
+    #             ee_rel_gold=batch["ee_triples"],
+    #             ee_mask=batch["ee_mask"])

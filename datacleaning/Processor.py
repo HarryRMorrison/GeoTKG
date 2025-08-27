@@ -166,18 +166,20 @@ def obtain_geo_data(path = "D:\\GeoTKG\\rawdata\\"):
     out = reader.read()
     save_data(out, path = "D:\\GeoTKG\\cleandata\\geo\\")
 
+# Change to filter samples that actually have timexs
 def retrieve_norm_text(sample):
-    dct = [inst for inst in sample["instances"] if inst['id'] == 0 and inst['type'] != 'EVENT'][0]['value']
+    dct = [inst for inst in sample["instances"] if inst['id'] == "t0" and inst['type'] != 'EVENT'][0]['value']
     out = []
     types = []
     for instance in sample["instances"]:
-        if instance['type'] != 'EVENT' and instance['id'] != 0:
+        if instance['type'] != 'EVENT' and instance['id'] != "t0":
             text = deepcopy(sample['text'])
             sent_id = instance["sent_id"]
             text[sent_id].insert(instance['offset'][1], "</timex>")
             text[sent_id].insert(instance['offset'][0], f"<timex type={instance['type']}>")
             text = text[min(0, sent_id-1):max(len(text), sent_id+1)]
-            text.insert(0, f"Document creation time is {dct} <sep> Normalise time expression:")
+            text.insert(0, [f"Document creation time is {dct} <sep> Normalise time expression:"])
+            text = [word for sent in text for word in sent]
             out.append({'input_text':text, 'output_text':instance['value']})
             types.append(instance['type'])
     return out, types
@@ -188,15 +190,14 @@ def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = []
     types = []
     for reader in [TweetsReader, WikiWarsReader]:
-        ds = get_dataset(reader(path + reader.__name__.replace("Reader","")))
-        for split in ds:
-            for sample in ds[split]:
-                out, t_types = retrieve_norm_text(sample)
-                data.extend(out)
-                types.extend(t_types)
+        ds = reader(path + reader.__name__.replace("Reader","")).read()
+        for sample in ds:
+            out, t_types = retrieve_norm_text(sample)
+            data.extend(out)
+            types.extend(t_types)
 
     X_train, X_test, y_train, y_test = train_test_split(data, types, test_size=0.1, random_state=42, stratify=types, shuffle=True)
-    X_train, X_val, y_train, y_val = train_test_split(X_train, types, test_size=0.1, random_state=42, stratify=y_train, shuffle=True)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42, stratify=y_train, shuffle=True)
     save_data({"train": X_train, "eval": X_val, "test": X_test}, path = "D:\\GeoTKG\\cleandata\\normalise\\")
                 
     

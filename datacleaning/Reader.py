@@ -463,21 +463,13 @@ class TweetsReader(TimeMLReader):
         super().__init__(path)
 
     def read(self):
-        json_paths = {"trainingset":os.path.join(CLEANDATA_PATH, "Tweets", "normalise", "train.json"), "tweets_test_with_newline":os.path.join(CLEANDATA_PATH, "Tweets", "normalise", "test.json")}
-        norm_data, out = [], {}
-        current_folder = self.file_paths_to_read[1].split('\\')[2]
+        data = []
         for file in self.file_paths_to_read:
             if not file.endswith(".tml"):
                 continue
-            if file.split('\\')[2] != current_folder:
-                out[current_folder] = {"norm_data": norm_data}
-                norm_data = []
-                current_folder = file.split('\\')[2]
             text, timexs = TweetsReader.get_doc_and_timex(ET.parse(file).getroot())
-            norms = TweetsReader.get_timex_values(text, timexs)
-            norm_data.extend(norms)
-
-        return out
+            data.append({"text":text, "instances":list(timexs.values())})
+        return data
     
     @staticmethod
     def get_doc_and_timex(root):
@@ -487,13 +479,14 @@ class TweetsReader(TimeMLReader):
         doc = root.find('TEXT')
         dct = root.find('DCT').find('TIMEX3')
         text, timexs, sentence, sentid = [], {}, [], 0
-        timexs['t0'] = {'value':dct.attrib.get('value'), 'type':dct.attrib.get('type'), 'offset':(1, len(text))}
+        timexs['t0'] = {'id':'t0', 'value':dct.attrib.get('value'), 'type':dct.attrib.get('type'), 'offset':(1, len(text))}
         
         for elem in doc.iter():
             start = len(sentence)
             sentence.extend([bit.text for bit in tokenizer(elem.text.replace("\n",""))])
             if elem.tag == 'TIMEX3':
                 timexs[elem.attrib.get('tid')] = {
+                    'id': elem.attrib.get('tid'),
                     'value': elem.attrib.get('value'),
                     'type': elem.attrib.get('type'),
                     'sent_id':sentid,
@@ -539,22 +532,13 @@ class WikiWarsReader(TweetsReader):
         super().__init__(path)
 
     def read(self):
-        #json_paths = {"train":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "train.json"), "test":os.path.join(CLEANDATA_PATH, "WikiWars", "normalise", "test.json")}
-        norm_data = []
-        out = {}
-        current_folder = self.file_paths_to_read[1].split('\\')[2]
+        data = []
         for file in self.file_paths_to_read:
             if not file.endswith(".tml"):
                 continue
-            if file.split('\\')[2] != current_folder:
-                out[current_folder] = {"norm_data": norm_data}
-                norm_data = []
-                current_folder = file.split('\\')[2]
-            text, events, timexs = WikiWarsReader.get_doc_and_loc(ET.parse(file).getroot(), {})
-            norms = WikiWarsReader.get_timex_values(text, timexs)
-            norm_data.extend(norms)
-
-        return out
+            text, timexs = WikiWarsReader.get_doc_and_timex(ET.parse(file).getroot())
+            data.append({"text":text, "instances":list(timexs.values())})
+        return data
 
 
 

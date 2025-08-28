@@ -42,22 +42,12 @@ def MaxSpanPool(H, starts, ends):
 # Event Time NER Head
 # --------------------------------
 class NERHead(nn.Module):
-    """
-    Minimal NER head: dropout + Linear -> logits.
-    Uses CrossEntropyLoss with ignore_index=-100 (for subword padding etc).
-    """
     def __init__(self, hidden_size: int, num_labels: int, dropout: float = 0.1):
         super().__init__()
         self.drop = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, num_labels)
 
     def forward(self, H):
-        """
-        H: [B, L, d] encoder token reps
-        labels: [B, L] (int), -100 where you want to ignore (e.g., non-first subwords)
-        attention_mask: [B, L] (optional; not required for loss)
-        returns dict with logits and optional loss
-        """
         logits = self.classifier(self.drop(H))  # [B, L, C]
         out = {"logits": logits}
         return out
@@ -107,22 +97,11 @@ class CrossAttention(nn.Module):
     def __init__(self, d, heads=6, dropout=0.0):  # set dropout=0.0 for clean probs
         super().__init__()
         self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout)
-        self.none_token = nn.Parameter(torch.zeros(1, 1, d))  # learned NONE
         self.ln = nn.LayerNorm(d)
 
     def forward(self, hE, hT, key_padding_mask, attn_mask):
-        """
-        hE: [B, Ne, d] events -> queries
-        hT: [B, Nt, d] times  -> keys/values
-        key_padding_mask_T: [B, Nt] (True = pad) for real time slots
-        attn_bias: optional float mask to add to logits, shape:
-                   [B, Ne, Nt+1] or [B*heads, Ne, Nt+1] (PyTorch 2.x)
-        """
         B = hE.size(0)
         Nt = hT.size(1)
-        # append NONE
-        none = self.none_token.expand(B, 1, -1)          # [B,1,d]
-        T_aug = torch.cat([hT, none], dim=1)             # [B, Nt+1, d]
         
         # Altering mask to account for none
         none_mask = torch.full((B,1), True, dtype=torch.bool).to(device="cuda")
@@ -131,17 +110,14 @@ class CrossAttention(nn.Module):
         # Switching to correct syntax
         atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt+1).repeat(self.mha.num_heads, 1, 1)
 
-        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=kp_mask, attn_mask=None, need_weights=True, average_attn_weights=True)
+        out, attn = self.mha(hE, hT, hT, key_padding_mask=kp_mask, attn_mask=None, need_weights=True, average_attn_weights=True)
         out = self.ln(out + hE)
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt+1] (avg across heads); with dropout=0, this sums to 1 → pointer probs
 
-        ptr_probs = attn                      # treat as p(t|e)
-        ptr_idx   = ptr_probs.argmax(-1)      # [B, Ne]
-        h_time_exp = ptr_probs @ T_aug        # [B, Ne, d] expected time embedding
+        h_time_exp = attn @ hT           # [B, Ne, d] expected time embedding
 
-        return {"ptr_probs": ptr_probs, "ptr_idx": ptr_idx,
-                "h_time_exp": h_time_exp, "hE_refined": out}
+        return {"h_time_exp": h_time_exp, "hE_refined": out}
 
 # ----------------------------
 # Event-Event Temporal Relation Head
@@ -158,13 +134,6 @@ class EEHead(nn.Module):
         )
 
     def forward(self, hE, hT_exp, pairs):
-        """
-        hE:      [B, Ne, d]     (event embeddings)
-        hT_exp:  [B, Ne, d]     (expected time embeddings per event)
-        pairs:   [B, M, 2]      (indices into event set)
-        Returns:
-          logits: [B, M, n_labels]
-        """
         B, Ne, d = hE.shape
         M = pairs.size(1)
         e1 = pairs[:,:,0]  # [B,M]
@@ -178,22 +147,42 @@ class EEHead(nn.Module):
         x = torch.cat([he1, he2, ht1, ht2, he1*he2, ht1*ht2, (he1- he2), (ht1- ht2)], dim=-1) # [B,M, 8d]
         logits = self.mlp(x)                                             # [B,M,C]
         return logits
+    
+# ----------------------------
+# Event-Time Matching Head
+# ----------------------------
+class ETHead(nn.Module):
+    def __init__(self, hidden_size: int, dropout: float = 0.1):
+        super().__init__()
+        self.drop = nn.Dropout(dropout)
+        self.linear = nn.Linear(hidden_size, 1)
 
+    @torch.no_grad()
+    def _pair_concat(self, E, T):
+        e = E.unsqueeze(2).expand(-1, -1, T.size(1), -1)
+        t = T.unsqueeze(1).expand(-1, E.size(1), -1, -1)
+        return torch.cat([e, t], dim=-1) # [B, Ne, Nt, De+Dt]
+
+    def forward(self, hT, hE):
+        x = self._pair_concat(hE, hT)
+        output = self.linear(self.drop(x)) # [B, Ne, Nt, 1]
+        return {"logits": output}
+    
 class TIEModel(nn.Module):
     def __init__(self, base="roberta-base",
                  num_ner=len(LABEL2ID_EVNER),
                  ee_labels=len(LABEL2ID_EE),
-                 heads=6,
-                 et_feat_dim=0,       # φ(e,t) size
-                 ee_feat_dim=0):      # φ(e1,e2) size
+                 heads=6):
         super().__init__()
         self.enc = AutoModel.from_pretrained(base)
         d = self.enc.config.hidden_size
         self.ner = NERHead(d, num_ner)
         self.span_pool = MaxSpanPool
         self.ca = CrossAttention(d=d, heads=heads)
+        self.et = ETHead(d*2)
         self.ee = EEHead(d, n_labels=ee_labels)
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
+        self.loss_bce = nn.BCEWithLogitsLoss()
 
     def save(self, save_path):
         torch.save({'model_state_dict':self.state_dict()}, save_path)
@@ -205,81 +194,48 @@ class TIEModel(nn.Module):
                 ner_gold_labels=None, ev_ti_gold=None, ee_rel_gold=None, ee_mask=None):
 
         out = {}
+
+        # 1) Encoding
         H = self.enc(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
 
-        # 1) NER head
+        # 2) NER head
         ner_out = self.ner(H)
-        out["ner_logits"] = ner_out["logits"]
-        if ner_gold_labels is not None:
-            ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), 
-                                    ner_gold_labels.view(-1))
-            out["ner_loss"] = ner_loss
-        else:
-            ner_loss = 0
+        ner_logits = ner_out["logits"]
+        ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), 
+                                ner_gold_labels.view(-1))
+        out["ner_loss"] = ner_loss
+        out["ner_preds"] = ner_logits.argmax(-1)
 
-        # 2) Span Max Pooling
-        if None in [ev_starts, ev_ends, ti_starts, ti_ends]:
-            ev_starts, ev_ends, ti_starts, ti_ends = NERHead.decode(ner_out["logits"])
-
+        # 3) Span Max Pooling
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
         hT = self.span_pool(H, ti_starts, ti_ends)  # [B, K, d] for times
 
-        # 3) Cross-Attention (events + times)
+        # 4) Cross-Attention (events + times)
         ca_out = self.ca(hE, hT, key_padding_mask=ti_mask, attn_mask = ev_mask)
-        ptr_probs = ca_out["ptr_probs"]  # [B, Ne, Nt+1]
         hE_ref = ca_out["hE_refined"]
         hT_e = ca_out["h_time_exp"]
-        out["ptr_probs"] = ptr_probs
-        if ev_ti_gold is not None:
-            ptr_loss = self.loss_ce(ptr_probs.view(-1, ptr_probs.size(-1)), 
-                                    ev_ti_gold.view(-1))
-            out["ptr_loss"] = ptr_loss
-            valid = ev_mask & (ev_ti_gold != -100)
-            nts = []
-            fou = False
-            for exa in ti_mask:
-                for i, bol in enumerate(exa):
-                    if not fou and bol == False:
-                        nts.append(i+1)
-                        fou = True
-                if not fou:
-                    nts.append(i+1)
-                fou = False
-            is_none = 0
-            tot = 0
-            for i, ex in enumerate(ptr_probs):
-                for j, ans in enumerate(ex.argmax(-1)):
-                    if valid[i,j]==True:
-                        if ans == nts[i]:
-                            is_none += 1
-                        tot += 1
-            out['none_r'] = is_none/tot
-        else:
-            ptr_loss = 0
 
-        # 5) Event-Event Temporal Relation Head
-        if ee_rel_gold is not None:
-            ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
-            ee_logits = self.ee(hE, hT_e, ee_pairs)         # [B, M, C] (optionally use hE — instead of hE_ref)
-            out["ee_logits"] = ee_logits
-            ee_labels = ee_rel_gold[:, :, 1].clone()        # [B, M]
-            ee_labels[~ee_mask] = -100                      # <-- mask padded pairs
-            ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
-                                    ee_labels.view(-1))
-            out["ee_loss"] = ee_loss
-        else:
-            B, Ne, d = hE.shape
-            row_idx, col_idx = torch.triu_indices(Ne, Ne, offset=1)
-            try:
-                batch_idx = torch.arange(B).unsqueeze(1).expand(B, row_idx.size(1))
-            except:
-                batch_idx = torch.arange(B).unsqueeze(1).expand(B, row_idx.size(0))
-            ee_pairs = torch.stack([row_idx.expand(B, -1), col_idx.expand(B, -1)], dim=-1)
-            ee_logits = self.ee(hE_ref, hT_e, ee_pairs)   
-            out["ee_logits"] = ee_logits
-            ee_loss = 0
+        # 5a) Event Time Linking
+        et_out = self.et(hT, hE_ref)
+        et_logits = et_out['logits']
+        pair_mask = ev_mask.unsqueeze(2) & ti_mask.unsqueeze(1)
+        et_logits = et_logits.masked_fill(~pair_mask, float('-inf'))
+        et_loss = self.loss_ce(et_logits, 
+                                ev_ti_gold.view(-1))
+        out["et_loss"] = et_loss
+        out["et_preds"] = 0 
 
-        out["loss"] = (ner_loss + ptr_loss + ee_loss)/3
+        # 5b) Event-Event Temporal Relation Head
+        ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
+        ee_logits = self.ee(hE_ref, hT_e, ee_pairs)     # [B, M, C] (optionally use hE — instead of hE_ref)
+        ee_labels = ee_rel_gold[:, :, 1].clone()        # [B, M]
+        ee_labels[~ee_mask] = -100                      # <-- mask padded pairs
+        ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
+                                ee_labels.view(-1))
+        out["ee_loss"] = ee_loss
+        out["ee_preds"] = ee_logits.argmax(-1)
+
+        out["loss"] = (ner_loss + et_loss + ee_loss)/3
 
         return out
     
@@ -295,7 +251,7 @@ class TIEModel(nn.Module):
         ee_true_all, ee_pred_all = [], []
         # Eval Loss
         loss = []
-        ner_loss, ptr_loss, ee_loss = 0, 0, 0
+        ner_loss, et_loss, ee_loss = 0, 0, 0
         real_corr, real_none = 0, 0
         tot = 0
         with torch.no_grad():
@@ -315,7 +271,7 @@ class TIEModel(nn.Module):
                 )
 
                 # -------- NER F1 (seqeval) --------
-                ner_logits   = out["ner_logits"]              # [B,L,C]
+                ner_logits   = out["ner_preds"]              # [B,L,C]
                 ner_pred_ids = ner_logits.argmax(-1)          # [B,L]
                 ner_gold_ids = batch["ner_labels"]            # [B,L]
                 B, L = ner_gold_ids.shape
@@ -333,12 +289,12 @@ class TIEModel(nn.Module):
                     ner_pred_seqs.append(pred_seq)
 
                 # -------- Event→Time pointer@1 --------
-                ptr_pred = out["ptr_probs"].argmax(-1)       # [B,Ne]
+                et_pred = out["et_preds"]                    # [B,Ne]
                 ev_mask  = batch["ev_mask"]                   # [B,Ne] (bool)
-                gold_ptr = batch["ev_ti_gold"]                # [B,Ne] (long)
+                gold_et = batch["ev_ti_gold"]                # [B,Ne] (long)
 
-                valid = ev_mask & (gold_ptr != -100)
-                et_correct += (ptr_pred[valid] == gold_ptr[valid]).sum().item()
+                valid = ev_mask & (gold_et != -100)
+                et_correct += (et_pred[valid] == gold_et[valid]).sum().item()
                 et_total   += valid.sum().item()
 
                 nts = []
@@ -351,10 +307,10 @@ class TIEModel(nn.Module):
                     if not fou:
                         nts.append(i+1)
                     fou = False
-                for i, ex in enumerate(out["ptr_probs"]):
+                for i, ex in enumerate(out["et_pred"]):
                     for j, ans in enumerate(ex.argmax(-1)):
                         if valid[i,j] == True:
-                            if ans==gold_ptr[i,j]:
+                            if ans==gold_et[i,j]:
                                 if ans != nts[i]:
                                     real_corr += 1
                                 else:
@@ -362,7 +318,7 @@ class TIEModel(nn.Module):
                             tot += 1
 
                 # -------- EE F1 --------
-                ee_logits = out["ee_logits"]                  # [B,M,C]
+                ee_logits = out["ee_preds"]                  # [B,M,C]
                 ee_pred   = ee_logits.argmax(-1)              # [B,M]
                 ee_gold   = batch["ee_triples"][:, :, 1]      # [B,M]
                 ee_mask   = batch["ee_mask"]                  # [B,M] (bool)
@@ -373,20 +329,20 @@ class TIEModel(nn.Module):
 
                 loss.append(out["loss"].item())
                 ner_loss += out.get("ner_loss", 0).item()
-                ptr_loss += out.get("ptr_loss", 0).item()
+                et_loss += out.get("et_loss", 0).item()
                 ee_loss += out.get("ee_loss", 0).item()
         out['real_cor'] = real_corr/tot
-        print("Real correct PTR: ", out['real_cor'])
-        print("None correct PTR: ", real_none/tot)
+        print("Real correct ET: ", out['real_cor'])
+        print("None correct ET: ", real_none/tot)
         metrics = {}
         metrics["ner_f1"]  = seqeval_f1(ner_true_seqs, ner_pred_seqs) if ner_true_seqs else 0.0
         print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
-        metrics["ptr_acc"] = (et_correct / et_total) if et_total > 0 else 0.0
+        metrics["et_acc"] = (et_correct / et_total) if et_total > 0 else 0.0
         metrics["ee_f1"] = sk_f1(ee_true_all, ee_pred_all, average=ee_average)
         print(sk_cr(ee_true_all, ee_pred_all, target_names=id2label_ee.values(), digits=4))
         metrics["eval_loss"] = sum(loss) / len(loss)
         metrics["ner_loss"] = ner_loss / len(loss)
-        metrics["ptr_loss"] = ptr_loss / len(loss)
+        metrics["et_loss"] = et_loss / len(loss)
         metrics["ee_loss"] = ee_loss / len(loss)
         return metrics
 
@@ -406,7 +362,6 @@ if __name__=="__main__":
     eval = TemporalDataset(cleandata_path + "eval.json")
     eval_loader = DataLoader(eval, batch_size=16, shuffle=True, collate_fn=collate_fn)
     batch_evaluation=model.evaluate_dataloader(eval_loader, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
-    print(f"NER F1={batch_evaluation['ner_f1']:.4f},  PTR={batch_evaluation['ptr_acc']:.4f},  EE F1={batch_evaluation['ee_f1']:.4f}, \nNER Eval Loss={batch_evaluation['ner_loss']:.4f} \nEval Loss={batch_evaluation['eval_loss']:.4f} \nPTR Eval Loss={batch_evaluation['ptr_loss']:.4f} \nEE Eval Loss={batch_evaluation['ee_loss']:.4f}")
     # from transformers import AutoTokenizer
     # ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
     #       "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 

@@ -347,7 +347,8 @@ class TimeMLReader(Reader):
     
     @staticmethod
     def et_link_to_input(links, events, timexs):
-        out = {}
+        #out = {}
+        out = []
 
         for link in links:
             id0 = TimeMLReader.check_id(link['eventInstanceID'], events)
@@ -362,15 +363,19 @@ class TimeMLReader(Reader):
             if id1[0]=="e":
                 id1, id0 = id0, id1  # swap if time is first
 
-            if id0 in out:
-                if out[id0][0] == "EQUALS":
-                    continue
-                elif rel_type == "EQUALS":
-                    out[id0] = (rel_type, {"event":id0, "time":id1})
+            # if id0 in out:
+            #     print(f'Dupe found: {out[id0][0]} and {rel_type}')
+            #     if out[id0][0] == "EQUALS":
+            #         continue
+            #     elif rel_type == "EQUALS":
+            #         out[id0] = (rel_type, {"event":id0, "time":id1})
 
-            elif rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
-               out[id0] = (rel_type, {"event":id0, "time":id1})
-        return [et[1] for et in out.values()]
+            # if rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+            #    out[id0] = (rel_type, {"event":id0, "time":id1})
+            if rel_type in ["DURING","EQUALS","CONTAINS","IDENTITY"]:
+                out.append({"event":id0, "time":id1})
+        #return [et[1] for et in out.values()]
+        return out
 
     @staticmethod
     def get_doc_info(file):
@@ -579,5 +584,4 @@ def obtain_combined_dataset(dataset_names, method):
     return DatasetDict({"test": test, "train":train, "eval": val}), label_list, label2id, id2label
 
 if __name__ == "__main__":
-    out = TimeMLReader.get_doc_info("rawdata\\TempEval3\\eval\\AQUAINT\\APW19990206.0090.tml")
-    print(out)
+    out = TBDenseReader("D:\\GeoTKG\\rawdata\\TBDense").read()

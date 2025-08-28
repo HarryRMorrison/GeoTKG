@@ -103,9 +103,8 @@ class CrossAttention(nn.Module):
         B = hE.size(0)
         Nt = hT.size(1)
         
-        # Altering mask to account for none
-        none_mask = torch.full((B,1), True, dtype=torch.bool).to(device="cuda")
-        kp_mask = ~torch.cat([key_padding_mask, none_mask], dim=1)
+        # Altering mask
+        kp_mask = ~key_padding_mask
 
         # Switching to correct syntax
         atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt+1).repeat(self.mha.num_heads, 1, 1)
@@ -156,6 +155,7 @@ class ETHead(nn.Module):
         super().__init__()
         self.drop = nn.Dropout(dropout)
         self.linear = nn.Linear(hidden_size, 1)
+        self.sig = nn.Sigmoid()
 
     @torch.no_grad()
     def _pair_concat(self, E, T):
@@ -166,7 +166,7 @@ class ETHead(nn.Module):
     def forward(self, hT, hE):
         x = self._pair_concat(hE, hT)
         output = self.linear(self.drop(x)) # [B, Ne, Nt, 1]
-        return {"logits": output}
+        return {"logits": output.squeeze(-1)}
     
 class TIEModel(nn.Module):
     def __init__(self, base="roberta-base",
@@ -204,7 +204,6 @@ class TIEModel(nn.Module):
         ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), 
                                 ner_gold_labels.view(-1))
         out["ner_loss"] = ner_loss
-        out["ner_preds"] = ner_logits.argmax(-1)
 
         # 3) Span Max Pooling
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
@@ -218,12 +217,10 @@ class TIEModel(nn.Module):
         # 5a) Event Time Linking
         et_out = self.et(hT, hE_ref)
         et_logits = et_out['logits']
-        pair_mask = ev_mask.unsqueeze(2) & ti_mask.unsqueeze(1)
-        et_logits = et_logits.masked_fill(~pair_mask, float('-inf'))
-        et_loss = self.loss_ce(et_logits, 
-                                ev_ti_gold.view(-1))
+        mask = ev_ti_gold != -100
+        et_loss = self.loss_bce(et_logits[mask].view(-1), 
+                                ev_ti_gold[mask].view(-1))
         out["et_loss"] = et_loss
-        out["et_preds"] = 0 
 
         # 5b) Event-Event Temporal Relation Head
         ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
@@ -233,9 +230,12 @@ class TIEModel(nn.Module):
         ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
                                 ee_labels.view(-1))
         out["ee_loss"] = ee_loss
-        out["ee_preds"] = ee_logits.argmax(-1)
 
-        out["loss"] = (ner_loss + et_loss + ee_loss)/3
+        out["loss"] = ner_loss + et_loss + ee_loss
+        if torch.isnan(ee_loss):
+            print(ee_pairs)
+            print(ee_logits)
+            print(ee_labels)
 
         return out
     
@@ -271,7 +271,7 @@ class TIEModel(nn.Module):
                 )
 
                 # -------- NER F1 (seqeval) --------
-                ner_logits   = out["ner_preds"]              # [B,L,C]
+                ner_logits   = out["ner_logits"]              # [B,L,C]
                 ner_pred_ids = ner_logits.argmax(-1)          # [B,L]
                 ner_gold_ids = batch["ner_labels"]            # [B,L]
                 B, L = ner_gold_ids.shape
@@ -347,21 +347,70 @@ class TIEModel(nn.Module):
         return metrics
 
 if __name__=="__main__":
-    model = TIEModel().to("cuda")
-    load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model_epoch50.pt")
-    model.load_state_dict(load['model_state_dict'])
+    # model = TIEModel().to("cuda")
+    # load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model_epoch50.pt")
+    # model.load_state_dict(load['model_state_dict'])
     from TIEUtils import TemporalDataset, collator
     from torch.utils.data import DataLoader
+    model = TIEModel()
     label2id_ner = LABEL2ID_EVNER
     id2label_ner = ID2LABEL_EVNER
     label2id_ee = LABEL2ID_EE
     id2label_ee = ID2LABEL_EE
-    cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
+    # cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
     def collate_fn(examples):
         return collator(examples, label2id_ner=label2id_ner, label2id_ee=label2id_ee)
-    eval = TemporalDataset(cleandata_path + "eval.json")
-    eval_loader = DataLoader(eval, batch_size=16, shuffle=True, collate_fn=collate_fn)
-    batch_evaluation=model.evaluate_dataloader(eval_loader, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
+    # eval = TemporalDataset(cleandata_path + "eval.json")
+    # eval_loader = DataLoader(eval, batch_size=2, shuffle=True, collate_fn=collate_fn)
+    ex1 = {
+        "tokens": [["Alpha", "won", "on", "Friday", "at", "noon", "."]],
+        "bio_tags": [["O","B-EVENT","O","B-DATE","O","B-TIME","O"]],
+        "instances": [
+            {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},           # "won"
+            {"type":"DATE","sent_id":0,"offset":[3,4],"id":10},           # "Friday"
+            {"type":"DURATION","sent_id":0,"offset":[5,6],"id":11},           # "noon"
+            {"type":"EVENT","sent_id":0,"offset":[0,1],"id":1},           # "Alpha" (treat as event for demo)
+        ],
+        "event_times": [
+            {"event":0,"time":10},     # won -> Friday
+        ],
+        "ee_temprels":[
+            {"e1":1,"e2":0,"rel":"BEFORE"}  # Alpha BEFORE won (directional)
+        ]
+    }
+    ex2 = {
+        "tokens": [
+            ["China","bagged","gold","on","Saturday","."],
+            ["Final","starts","Monday","morning","."]
+        ],
+        "bio_tags": [
+            ["O","B-EVENT","B-EVENT","O","B-DATE","O"],
+            ["O","B-EVENT","B-DATE","O","O"]
+        ],
+        "instances": [
+            {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},     # bagged
+            {"type":"EVENT","sent_id":0,"offset":[2,3],"id":1},     # gold
+            {"type":"DATE","sent_id":0,"offset":[4,5],"id":100},    # Saturday
+            {"type":"EVENT","sent_id":1,"offset":[1,2],"id":2},     # starts
+            {"type":"DATE","sent_id":1,"offset":[2,3],"id":101}     # Monday
+        ],
+        "event_times": [
+            {"event":0,"time":100},   # bagged -> Saturday
+            {"event":2,"time":101}    # starts -> Monday
+        ],
+        "ee_temprels":[
+            {"e1":0,"e2":1,"rel":"AFTER"},
+            {"e1":1,"e2":2,"rel":"BEFORE"}
+        ]
+    }
+    batch = collate_fn([ex1,ex2])
+    print(model.forward(batch["input_ids"], batch["attention_mask"],
+                # --- Event and Time Locations
+                batch["ev_starts"], batch["ev_ends"], batch["ev_mask"], batch["ti_starts"], batch["ti_ends"], batch["ti_mask"], batch["e_sent_ids"], batch["t_sent_ids"],
+                # --- Gold Labels
+                batch["ner_labels"], batch["ev_ti_gold"], batch["ee_triples"], batch["ee_mask"]))
+    
+    #batch_evaluation=model.evaluate_dataloader(batch, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
     # from transformers import AutoTokenizer
     # ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
     #       "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 

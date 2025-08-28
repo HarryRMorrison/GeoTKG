@@ -91,39 +91,6 @@ def reindex(data):
 
     return data
 
-def get_et_pairs(dset):
-    all_pairs = {"train":[], "eval":[], "test":[]}
-    for split in dset:
-        for sample in dset[split]:
-            ev_ti_pairs = {}
-            for et in sample["event_times"]:
-                if et["event"] in ev_ti_pairs:
-                    print(f"Duplicate event found: {et['event']}")
-                ev_ti_pairs[et["event"]] = et["time"]
-            all_pairs[split].append(ev_ti_pairs)
-    return all_pairs
-
-def apply_none_event_times(bal_data):
-    bal_cpy = deepcopy(bal_data)
-    
-    for dset in bal_cpy:
-        all_pairs = get_et_pairs(bal_cpy[dset])
-        for split in bal_cpy[dset]:
-            for i, sample in enumerate(bal_cpy[dset][split]):
-                pairs = list(all_pairs[split][i].keys())
-                new_event_times = deepcopy(sample['event_times'])
-
-                for event in [inst for inst in sample['instances'] if inst['type']=='EVENT']:
-                    
-                    if event["id"] not in pairs:
-                        new_event_times.append({"event": event["id"], "time": "NONE"})
-
-                sample['event_times'] = new_event_times
-
-                if len([inst for inst in sample['instances'] if inst['type']=="EVENT"]) != len(sample['event_times']):
-                    print(f"Mismatch in event times for sample {bal_cpy[dset][split].index(sample)} in {dset} {split}: {len([inst for inst in sample['instances'] if inst['type']=='EVENT'])} vs {len(sample['event_times'])}")
-    return bal_cpy
-
 def save_data(data, path):
     import json
     if 'test' not in data:
@@ -157,7 +124,6 @@ def obtain_tie_data(path = "D:\\GeoTKG\\rawdata\\"):
     for name, reader in [("TempEval3", TempEval3Reader),("TBDense", TBDenseReader),('MAVEN_ERE', MAVENReader)]:
         data[name] = get_dataset(reader(path + name))
     bal, cnts = data_temprel_select(data)
-    bal = apply_none_event_times(bal)
     bal = combine_and_stratify(bal)
     save_data(bal, path = "D:\\GeoTKG\\cleandata\\tie\\")
 
@@ -183,9 +149,7 @@ def retrieve_norm_text(sample):
             out.append({'input_text':text, 'output_text':instance['value']})
             types.append(instance['type'])
     return out, types
-            
-            
-
+                      
 def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = []
     types = []
@@ -204,4 +168,4 @@ def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
         
 
 if __name__ == "__main__":
-    obtain_norm_data()
+    obtain_tie_data()

@@ -167,31 +167,25 @@ def collator(examples, label2id_ner, label2id_ee):
         ti_mask[bi, :ti_lens[bi]] = True
 
     # ---------- 5) Build event→time gold pointer indices with per-example NONE ----------
-    ev_ti_gold = torch.full((B, Ne_max), -100, dtype=torch.long)
+    ev_ti_gold = torch.full((B, Ne_max, Nt_max), 0.0, dtype=torch.float32)
     for bi, ex in enumerate(examples):
-        Nt_real = ti_lens[bi]  # NONE index for this example
-        if Nt_real < 0:
-            Nt_real = 0
+        
         ev2idx = ev2idx_per_ex[bi]
         tx2idx = timex2idx_per_ex[bi]
 
         for et in ex.get("event_times", []):
             e_id = et["event"]
             t_id = et["time"]
-            if e_id not in ev2idx:
+            if e_id not in ev2idx or t_id not in tx2idx:
                 continue
             e_idx = ev2idx[e_id]
-            if t_id == "NONE":
-                ev_ti_gold[bi, e_idx] = Nt_real
-            else:
-                if t_id in tx2idx:
-                    ev_ti_gold[bi, e_idx] = tx2idx[t_id]
-                else:
-                    # if time id not present (filtered/truncated), fall back to NONE
-                    ev_ti_gold[bi, e_idx] = Nt_real
+            t_idx = tx2idx[t_id]
+
+            ev_ti_gold[bi, e_idx, t_idx] = 1.0
 
         # mask out padded events
-        ev_ti_gold[bi, ~ev_mask[bi]] = -100
+        ev_ti_gold[bi, ~ev_mask[bi]] = -100.0
+        ev_ti_gold[bi, :, ~ti_mask[bi]] = -100.0
 
     # ---------- 6) Build EE triples & mask ----------
     # Shape: [B, M, 3] with [e1_idx, rel_id, e2_idx]
@@ -278,7 +272,8 @@ if __name__ == "__main__":
         ],
         "event_times": [
             {"event":0,"time":10},     # won -> Friday
-            {"event":1,"time":"NONE"}  # Alpha has no time
+            {"event":1,"time":10},  # Alpha has no time
+            {"event":1,"time":11}
         ],
         "ee_temprels":[
             {"e1":1,"e2":0,"rel":"BEFORE"}  # Alpha BEFORE won (directional)
@@ -302,8 +297,7 @@ if __name__ == "__main__":
         ],
         "event_times": [
             {"event":0,"time":100},   # bagged -> Saturday
-            {"event":1,"time":"NONE"},
-            {"event":2,"time":101}    # starts -> Monday
+            {"event":2,"time":101},    # starts -> Monday
         ],
         "ee_temprels":[
             {"e1":0,"e2":1,"rel":"AFTER"},
@@ -319,19 +313,18 @@ if __name__ == "__main__":
                          {"offset": [10, 11], "type": "EVENT", "sent_id": 0, "text": "won", "id": 3}, 
                          {"offset": [12, 13], "type": "EVENT", "sent_id": 0, "text": "decides", "id": 4}, 
                          {"offset": [6, 7], "type": "EVENT", "sent_id": 1, "text": "held", "id": 5}, 
-                         {"value": "2006-12-02", "type": "TIME", "offset": [1, 0], "id": 0}, 
-                         {"value": "2006-12-09", "type": "DURATION", "sent_id": 0, "offset": [8, 9], "text": "Saturday", "id": 1}, 
-                         {"value": "2006-12-09", "type": "DATE", "sent_id": 1, "offset": [8, 9], "text": "Saturday", "id": 2}], 
+                         {"value": "2006-12-02", "type": "TIME", "offset": [1, 0], "id": 0},
+                         {"value": "2006-12-09", "type": "DURATION", "sent_id": 0, "offset": [9, 10], "text": "Saturday", "id": 1},
+                         {"value": "2006-12-09", "type": "DURATION", "sent_id": 0, "offset": [8, 9], "text": "Saturday", "id": 2}, 
+                         {"value": "2006-12-09", "type": "DATE", "sent_id": 1, "offset": [8, 9], "text": "Saturday", "id": 3}], 
            "event_times": [{"event": 5, "time": 2}, 
-                           {"event": 2, "time": 1}, 
-                           {"event": 0, "time": "NONE"}, 
-                           {"event": 1, "time": "NONE"}, 
-                           {"event": 3, "time": "NONE"}, 
-                           {"event": 4, "time": "NONE"}], 
+                           {"event": 2, "time": 1},
+                           {"event": 1, "time": 3},
+                           {"event": 2, "time": 2}], 
            "ee_temprels": [{"e1": 3, "e2": 4, "rel": "AFTER"}, {"e1": 0, "e2": 2, "rel": "AFTER"}, {"e1": 0, "e2": 1, "rel": "AFTER"}], 
            "bio_tags": [["O", "O", "B-EVENT", "O", "B-EVENT", "O", "B-EVENT", "O", "B-DURATION", "O", "B-EVENT", "O", "B-EVENT", "O", "O", "O", "O", "O", "O", "O", "O"], ["O", "O", "O", "O", "O", "O", "B-EVENT", "O", "B-DATE", "O"]]}
 
     from globals import LABEL2ID_EVNER, LABEL2ID_EE
 
-    out=collator([ex3, ex2], LABEL2ID_EVNER, LABEL2ID_EE)
-    print(out)
+    out=collator([ex3, ex2, ex1], LABEL2ID_EVNER, LABEL2ID_EE)
+    print(out['ev_ti_gold'])

@@ -97,24 +97,36 @@ class CrossAttention(nn.Module):
     def __init__(self, d, heads=6, dropout=0.0):  # set dropout=0.0 for clean probs
         super().__init__()
         self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout)
+        self.none_token = nn.Parameter(torch.zeros(1, 1, d))
         self.ln = nn.LayerNorm(d)
 
     def forward(self, hE, hT, key_padding_mask, attn_mask):
-        B = hE.size(0)
-        Nt = hT.size(1)
+        '''
+        hE: [B, Ne, d]
+        hT: [B, Nt, d]
+        key_padding_mask: [B, Nt]
+        attn_mask: [B, Ne]
+        '''
+        B, Ne, d = hE.shape
+        _, Nt, _ = hT.shape
+
+        # Adding None to hT
+        none = self.none_token.expand(B, 1, d)                 # [B,1,d]
+        T_aug = torch.cat([hT, none], dim=1)                     # [B, Nt+1, d]
+
+        # Applying None to key_padding_mask
+        kp_none = torch.zeros(B, 1, dtype=torch.bool, device=key_padding_mask.device)
+        key_padding_mask = torch.cat([~key_padding_mask, kp_none], dim=1)
         
-        # Altering mask
-        kp_mask = ~key_padding_mask
-
         # Switching to correct syntax
-        atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt+1).repeat(self.mha.num_heads, 1, 1)
+        #atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt).repeat(self.mha.num_heads, 1, 1)
 
-        out, attn = self.mha(hE, hT, hT, key_padding_mask=kp_mask, attn_mask=None, need_weights=True, average_attn_weights=True)
+        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=key_padding_mask, need_weights=True, average_attn_weights=True)
         out = self.ln(out + hE)
         # out:  [B, Ne, d]  (refined events)
-        # attn:[B, Ne, Nt+1] (avg across heads); with dropout=0, this sums to 1 → pointer probs
+        # attn:[B, Ne, Nt] (avg across heads); with dropout=0, this sums to 1 → pointer probs
 
-        h_time_exp = attn @ hT           # [B, Ne, d] expected time embedding
+        h_time_exp = attn @ T_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
 
         return {"h_time_exp": h_time_exp, "hE_refined": out}
 
@@ -201,9 +213,10 @@ class TIEModel(nn.Module):
         # 2) NER head
         ner_out = self.ner(H)
         ner_logits = ner_out["logits"]
-        ner_loss = self.loss_ce(ner_out["logits"].view(-1, ner_out["logits"].size(-1)), 
+        ner_loss = self.loss_ce(ner_logits.view(-1, ner_logits.size(-1)), 
                                 ner_gold_labels.view(-1))
         out["ner_loss"] = ner_loss
+        out["ner_logits"] = ner_logits
 
         # 3) Span Max Pooling
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
@@ -221,6 +234,7 @@ class TIEModel(nn.Module):
         et_loss = self.loss_bce(et_logits[mask].view(-1), 
                                 ev_ti_gold[mask].view(-1))
         out["et_loss"] = et_loss
+        out["et_logits"] = et_logits
 
         # 5b) Event-Event Temporal Relation Head
         ee_pairs  = ee_rel_gold[:, :, [0, 2]]           # [B, M, 2]
@@ -230,13 +244,9 @@ class TIEModel(nn.Module):
         ee_loss = self.loss_ce(ee_logits.view(-1, ee_logits.size(-1)),
                                 ee_labels.view(-1))
         out["ee_loss"] = ee_loss
+        out["ee_logits"] = ee_logits
 
         out["loss"] = ner_loss + et_loss + ee_loss
-        if torch.isnan(ee_loss):
-            print(ee_pairs)
-            print(ee_logits)
-            print(ee_labels)
-
         return out
     
     def evaluate_dataloader(self, dev_loader, id2label_ner, id2label_ee, *, ee_average="micro"):
@@ -289,7 +299,7 @@ class TIEModel(nn.Module):
                     ner_pred_seqs.append(pred_seq)
 
                 # -------- Event→Time pointer@1 --------
-                et_pred = out["et_preds"]                    # [B,Ne]
+                et_pred = out["et_logits"]                    # [B,Ne]
                 ev_mask  = batch["ev_mask"]                   # [B,Ne] (bool)
                 gold_et = batch["ev_ti_gold"]                # [B,Ne] (long)
 
@@ -363,7 +373,7 @@ if __name__=="__main__":
     # eval = TemporalDataset(cleandata_path + "eval.json")
     # eval_loader = DataLoader(eval, batch_size=2, shuffle=True, collate_fn=collate_fn)
     ex1 = {
-        "tokens": [["Alpha", "won", "on", "Friday", "at", "noon", "."]],
+        "tokens": [["Alpha", "won", "on", "Friday", "at", "noon","."]],
         "bio_tags": [["O","B-EVENT","O","B-DATE","O","B-TIME","O"]],
         "instances": [
             {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},           # "won"
@@ -378,13 +388,23 @@ if __name__=="__main__":
             {"e1":1,"e2":0,"rel":"BEFORE"}  # Alpha BEFORE won (directional)
         ]
     }
+    ex3={"text": [["Israeli", "President", "Moshe", "Katsav", "inked", " ", "a", "decree", "on", "Wednesday", " ", "to", "dissolve", " ", "the", "Knesset", "(", "Parliament", ")", "and", "call", " ", "a", "snap", "election", "."]], 
+         "instances": [
+             {"offset": [4, 5], "type": "EVENT", "sent_id": 0, "text": "inked", "id": 0}, 
+             {"offset": [12, 13], "type": "EVENT", "sent_id": 0, "text": "dissolve", "id": 1}, 
+             {"offset": [20, 21], "type": "EVENT", "sent_id": 0, "text": "call", "id": 2}, 
+             {"offset": [24, 25], "type": "EVENT", "sent_id": 0, "text": "election", "id": 3}, 
+             {"value": "2005-11-23", "type": "TIME", "offset": [1, 0], "id": 0}, 
+             {"value": "2005-11-23", "type": "DATE", "sent_id": 0, "offset": [9, 10], "text": "Wednesday", "id": 1}
+             ], 
+        "event_times": [{"event": 1, "time": 1}], "ee_temprels": [{"e1": 0, "e2": 2, "rel": "AFTER"}, {"e1": 0, "e2": 1, "rel": "AFTER"}], "bio_tags": [["O", "O", "O", "O", "B-EVENT", "O", "O", "O", "O", "B-DATE", "O", "O", "B-EVENT", "O", "O", "O", "O", "O", "O", "O", "B-EVENT", "O", "O", "O", "B-EVENT", "O"]]}
     ex2 = {
         "tokens": [
-            ["China","bagged","gold","on","Saturday","."],
+            ["China","bagged","gold","on","Saturday", "and","Tuesday","."],
             ["Final","starts","Monday","morning","."]
         ],
         "bio_tags": [
-            ["O","B-EVENT","B-EVENT","O","B-DATE","O"],
+            ["O","B-EVENT","B-EVENT","O","B-DATE","O","B-DATE","O"],
             ["O","B-EVENT","B-DATE","O","O"]
         ],
         "instances": [
@@ -392,7 +412,8 @@ if __name__=="__main__":
             {"type":"EVENT","sent_id":0,"offset":[2,3],"id":1},     # gold
             {"type":"DATE","sent_id":0,"offset":[4,5],"id":100},    # Saturday
             {"type":"EVENT","sent_id":1,"offset":[1,2],"id":2},     # starts
-            {"type":"DATE","sent_id":1,"offset":[2,3],"id":101}     # Monday
+            {"type":"DATE","sent_id":1,"offset":[2,3],"id":101},     # Monday
+            {"type":"DATE","sent_id":0,"offset":[6,7],"id":102}
         ],
         "event_times": [
             {"event":0,"time":100},   # bagged -> Saturday
@@ -403,7 +424,26 @@ if __name__=="__main__":
             {"e1":1,"e2":2,"rel":"BEFORE"}
         ]
     }
-    batch = collate_fn([ex1,ex2])
+    ex4 = {
+        "tokens": [
+            ["China","bagged","gold","on","Saturday", "and","Tuesday","."],
+            ["Final","starts","Monday","morning","."]
+        ],
+        "bio_tags": [
+            ["O","B-EVENT","B-EVENT","O","B-DATE","O","B-DATE","O"],
+            ["O","B-EVENT","B-DATE","O","O"]
+        ],
+        "instances": [
+            {"type":"EVENT","sent_id":0,"offset":[1,2],"id":0},     # bagged
+            {"type":"EVENT","sent_id":0,"offset":[2,3],"id":1},     # gold
+            {"type":"EVENT","sent_id":1,"offset":[1,2],"id":2},     # starts
+        ],
+        "ee_temprels":[
+            {"e1":0,"e2":1,"rel":"AFTER"},
+            {"e1":1,"e2":2,"rel":"BEFORE"}
+        ]
+    }
+    batch = collate_fn([ex1,ex2, ex3, ex4])
     print(model.forward(batch["input_ids"], batch["attention_mask"],
                 # --- Event and Time Locations
                 batch["ev_starts"], batch["ev_ends"], batch["ev_mask"], batch["ti_starts"], batch["ti_ends"], batch["ti_mask"], batch["e_sent_ids"], batch["t_sent_ids"],

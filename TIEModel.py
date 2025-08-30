@@ -137,12 +137,14 @@ class EEHead(nn.Module):
     def __init__(self, d, n_labels, hidden=256*2, dropout=0.1):
         super().__init__()
         in_dim = 8*d
-        self.mlp = nn.Sequential(
-            nn.Linear(in_dim, hidden), 
-            nn.SiLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden, n_labels)
-        )
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(in_dim, hidden), 
+        #     nn.SiLU(),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(hidden, n_labels)
+        # )
+        self.drop = nn.Dropout(dropout)
+        self.linear = nn.Linear(in_dim, n_labels)
 
     def forward(self, hE, hT_exp, pairs):
         B, Ne, d = hE.shape
@@ -156,7 +158,8 @@ class EEHead(nn.Module):
         ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))  # [B,M,d]
 
         x = torch.cat([he1, he2, ht1, ht2, he1*he2, ht1*ht2, (he1- he2), (ht1- ht2)], dim=-1) # [B,M, 8d]
-        logits = self.mlp(x)                                             # [B,M,C]
+        #logits = self.mlp(x)                                             # [B,M,C]
+        logits = self.linear(self.drop(x))
         return logits
     
 # ----------------------------
@@ -174,6 +177,11 @@ class ETHead(nn.Module):
         e = E.unsqueeze(2).expand(-1, -1, T.size(1), -1)
         t = T.unsqueeze(1).expand(-1, E.size(1), -1, -1)
         return torch.cat([e, t], dim=-1) # [B, Ne, Nt, De+Dt]
+    
+    @torch.no_grad()
+    def decode(self, logits):
+        out = self.sig(logits)
+        return (out > 0.5).float()
 
     def forward(self, hT, hE):
         x = self._pair_concat(hE, hT)
@@ -299,36 +307,15 @@ class TIEModel(nn.Module):
                     ner_pred_seqs.append(pred_seq)
 
                 # -------- Event→Time pointer@1 --------
-                et_pred = out["et_logits"]                    # [B,Ne]
-                ev_mask  = batch["ev_mask"]                   # [B,Ne] (bool)
+                et_pred = self.et.decode(out["et_logits"])                    # [B,Ne]
                 gold_et = batch["ev_ti_gold"]                # [B,Ne] (long)
 
-                valid = ev_mask & (gold_et != -100)
+                valid = gold_et != -100
                 et_correct += (et_pred[valid] == gold_et[valid]).sum().item()
                 et_total   += valid.sum().item()
 
-                nts = []
-                fou = False
-                for exa in batch["ti_mask"]:
-                    for i, bol in enumerate(exa):
-                        if not fou and bol == False:
-                            nts.append(i+1)
-                            fou = True
-                    if not fou:
-                        nts.append(i+1)
-                    fou = False
-                for i, ex in enumerate(out["et_pred"]):
-                    for j, ans in enumerate(ex.argmax(-1)):
-                        if valid[i,j] == True:
-                            if ans==gold_et[i,j]:
-                                if ans != nts[i]:
-                                    real_corr += 1
-                                else:
-                                    real_none += 1
-                            tot += 1
-
                 # -------- EE F1 --------
-                ee_logits = out["ee_preds"]                  # [B,M,C]
+                ee_logits = out["ee_logits"]                  # [B,M,C]
                 ee_pred   = ee_logits.argmax(-1)              # [B,M]
                 ee_gold   = batch["ee_triples"][:, :, 1]      # [B,M]
                 ee_mask   = batch["ee_mask"]                  # [B,M] (bool)
@@ -341,9 +328,7 @@ class TIEModel(nn.Module):
                 ner_loss += out.get("ner_loss", 0).item()
                 et_loss += out.get("et_loss", 0).item()
                 ee_loss += out.get("ee_loss", 0).item()
-        out['real_cor'] = real_corr/tot
-        print("Real correct ET: ", out['real_cor'])
-        print("None correct ET: ", real_none/tot)
+
         metrics = {}
         metrics["ner_f1"]  = seqeval_f1(ner_true_seqs, ner_pred_seqs) if ner_true_seqs else 0.0
         print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
@@ -367,11 +352,11 @@ if __name__=="__main__":
     id2label_ner = ID2LABEL_EVNER
     label2id_ee = LABEL2ID_EE
     id2label_ee = ID2LABEL_EE
-    # cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
+    cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
     def collate_fn(examples):
         return collator(examples, label2id_ner=label2id_ner, label2id_ee=label2id_ee)
-    # eval = TemporalDataset(cleandata_path + "eval.json")
-    # eval_loader = DataLoader(eval, batch_size=2, shuffle=True, collate_fn=collate_fn)
+    eval = TemporalDataset(cleandata_path + "eval.json")
+    eval_loader = DataLoader(eval, batch_size=2, shuffle=True, collate_fn=collate_fn)
     ex1 = {
         "tokens": [["Alpha", "won", "on", "Friday", "at", "noon","."]],
         "bio_tags": [["O","B-EVENT","O","B-DATE","O","B-TIME","O"]],
@@ -443,14 +428,14 @@ if __name__=="__main__":
             {"e1":1,"e2":2,"rel":"BEFORE"}
         ]
     }
-    batch = collate_fn([ex1,ex2, ex3, ex4])
-    print(model.forward(batch["input_ids"], batch["attention_mask"],
-                # --- Event and Time Locations
-                batch["ev_starts"], batch["ev_ends"], batch["ev_mask"], batch["ti_starts"], batch["ti_ends"], batch["ti_mask"], batch["e_sent_ids"], batch["t_sent_ids"],
-                # --- Gold Labels
-                batch["ner_labels"], batch["ev_ti_gold"], batch["ee_triples"], batch["ee_mask"]))
+    # batch = collate_fn([ex1,ex2, ex3, ex4])
+    # print(model.forward(batch["input_ids"], batch["attention_mask"],
+    #             # --- Event and Time Locations
+    #             batch["ev_starts"], batch["ev_ends"], batch["ev_mask"], batch["ti_starts"], batch["ti_ends"], batch["ti_mask"], batch["e_sent_ids"], batch["t_sent_ids"],
+    #             # --- Gold Labels
+    #             batch["ner_labels"], batch["ev_ti_gold"], batch["ee_triples"], batch["ee_mask"]))
     
-    #batch_evaluation=model.evaluate_dataloader(batch, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
+    batch_evaluation=model.evaluate_dataloader(eval_loader, id2label_ee=id2label_ee, id2label_ner=id2label_ner)
     # from transformers import AutoTokenizer
     # ex = {"text": [["Eleven", "people", "were", "Eleven", "people", "were", "confirmed", "confirmed", "blast", "blast", "Wednesday", "morning", "Wednesday", "morning", "said", "said"]], 
     #       "instances": [{"offset": [6, 7], "type": "EVENT", "sent_id": 0, "text": "confirmed", "id": 0}, 

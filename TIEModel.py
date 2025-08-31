@@ -136,7 +136,7 @@ class CrossAttention(nn.Module):
 class EEHead(nn.Module):
     def __init__(self, d, n_labels, hidden=256*2, dropout=0.1):
         super().__init__()
-        in_dim = 8*d
+        in_dim = 6*d
         # self.mlp = nn.Sequential(
         #     nn.Linear(in_dim, hidden), 
         #     nn.SiLU(),
@@ -157,7 +157,7 @@ class EEHead(nn.Module):
         ht1 = torch.gather(hT_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))  # [B,M,d]
         ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))  # [B,M,d]
 
-        x = torch.cat([he1, he2, ht1, ht2, he1*he2, ht1*ht2, (he1- he2), (ht1- ht2)], dim=-1) # [B,M, 8d]
+        x = torch.cat([he1, he2, ht1, ht2, he1*he2, ht1*ht2], dim=-1) # [B,M, 6d]
         #logits = self.mlp(x)                                             # [B,M,C]
         logits = self.linear(self.drop(x))
         return logits

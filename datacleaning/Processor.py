@@ -141,13 +141,13 @@ def retrieve_norm_text(sample):
         if instance['type'] != 'EVENT' and instance['id'] != "t0":
             text = deepcopy(sample['text'])
             sent_id = instance["sent_id"]
-            text[sent_id].insert(instance['offset'][1], "</timex>")
-            text[sent_id].insert(instance['offset'][0], f"<timex type={instance['type']}>")
-            text = text[min(0, sent_id-1):max(len(text), sent_id+1)]
-            text.insert(0, [f"Document creation time is {dct} <sep> Normalise time expression:"])
-            text = [word for sent in text for word in sent]
-            out.append({'input_text':text, 'output_text':instance['value']})
-            types.append(instance['type'])
+            mention = " ".join(text[sent_id][instance['offset'][0]:instance['offset'][1]])
+            type_ = instance['type']
+            text = text[max(0, sent_id-1):min(len(text), sent_id+1)]
+            text = " ".join([word for sent in text for word in sent])
+            input_text = f'DCT: {dct} \nTYPE: {type_} \nTEXT: {text} \nSPAN: \"{mention}\"'
+            out.append({'input_text':input_text, 'output_text':instance['value']})
+            types.append(type_)
     return out, types
                       
 def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
@@ -159,13 +159,18 @@ def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
             out, t_types = retrieve_norm_text(sample)
             data.extend(out)
             types.extend(t_types)
+    for reader in [TempEval3Reader, TBDenseReader]:
+        ds = reader(path + reader.__name__.replace("Reader","")).read()
+        for split in ds:
+            for sample in ds[split]:
+                out, t_types = retrieve_norm_text(sample)
+                data.extend(out)
+                types.extend(t_types)
 
     X_train, X_test, y_train, y_test = train_test_split(data, types, test_size=0.1, random_state=42, stratify=types, shuffle=True)
     X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42, stratify=y_train, shuffle=True)
     save_data({"train": X_train, "eval": X_val, "test": X_test}, path = "D:\\GeoTKG\\cleandata\\normalise\\")
                 
     
-        
-
 if __name__ == "__main__":
-    obtain_tie_data()
+    obtain_norm_data()

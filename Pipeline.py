@@ -14,7 +14,7 @@ class GeoTKGPipeline:
         print(resolved_text)
 
         # 2a) Temporal Information Extraction
-
+        self.TIEModel()
 
         # 2b) Temporal Transitivity Event Filtering
 

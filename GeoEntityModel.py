@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
-from globals import LABEL2ID_GEONER, ID2LABEL_GEONER
+from globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
+from transformers import AutoTokenizer
+TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
     
 class GeoEntityModel(nn.Module):
     def __init__(self, base: str = "roberta-base", num_ner: int = len(LABEL2ID_GEONER), dropout: float = 0.1):
@@ -17,8 +19,7 @@ class GeoEntityModel(nn.Module):
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)
 
     def save(self, save_path):
-        torch.save({"model_state_dict": self.state_dict()}, save_path+"geo_model.pt")
-        self.enc.save_pretrained(save_path+"geo_encoder/")
+        torch.save({"model_state_dict": self.state_dict()}, save_path)
 
     def forward(self, input_ids, attention_mask, labels=None):
         # 1) Encode
@@ -73,9 +74,40 @@ class GeoEntityModel(nn.Module):
         print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
         metrics["eval_loss"] = sum(losses) / len(losses)
         return metrics
+    
+    @torch.no_grad()
+    def decode(self, logits):
+        decoded = logits.argmax(-1)
+        bi_map = {**GEOENT_BI, **GEOTIME_BI}
+        Bs = bi_map.keys()
+        times = []
+        entities = []
+        for example in decoded:
+            i = 0
+            temp_ti, temp_en = [], []
+            while i < example.shape[0]:
+                if example[i].item() in Bs:
+                    start = i
+                    ent_type = example[i].item()
+                    is_timex = True if ent_type in GEOTIME_BI else False
+                    i += 1
+                    while i < len(example) and example[i] == bi_map[ent_type]:
+                        i += 1
+                    if is_timex: 
+                        temp_ti.append((start, i, ID2LABEL_GEONER[ent_type]))
+                    else: 
+                        temp_en.append((start, i, ID2LABEL_GEONER[ent_type]))
+                else:
+                    i += 1
+            times.append(temp_ti)
+            entities.append(temp_en)
 
-    def predict(self, input_ids, attention_mask):
+        return times, entities
+
+    def predict(self, text_batch):
         self.eval()
+        
+        tokens = TOKENIZER(text_batch, add_special_tokens=True, padding=True, truncation=True, return_tensors="pt")
         with torch.no_grad():
-            out = self.forward(input_ids=input_ids, attention_mask=attention_mask, labels=None)
-        return out['logits'].argmax(dim=-1)
+            out = self.forward(input_ids=tokens['input_ids'], attention_mask=tokens['attention_mask'], labels=None)
+        return self.decode(out['logits'])

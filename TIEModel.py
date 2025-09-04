@@ -57,11 +57,12 @@ class NERHead(nn.Module):
         decoded = logits.argmax(-1)
         bi_map = {**EVENT_BI, **TIMEX_BI}
         Bs = bi_map.keys()
-        ti_starts, ti_ends = [], []
+        ti_starts, ti_ends, ti_types = [], [], []
         ev_starts, ev_ends = [], []
         for example in decoded:
             i = 0
             temp_ts, temp_te, temp_es, temp_ee = [], [], [], []
+            temp_ti_types = []
             while i < example.shape[0]:
                 if example[i].item() in Bs:
                     start = i
@@ -73,6 +74,7 @@ class NERHead(nn.Module):
                     if is_timex: 
                         temp_ts.append(start)
                         temp_te.append(i)
+                        temp_ti_types.append(ID2LABEL_EVNER[ent_type][2:])
                     else: 
                         temp_es.append(start)
                         temp_ee.append(i)
@@ -82,11 +84,12 @@ class NERHead(nn.Module):
             ti_ends.append(torch.tensor(temp_te))
             ev_starts.append(torch.tensor(temp_es))
             ev_ends.append(torch.tensor(temp_ee))
+            ti_types.append(temp_ti_types)
         ev_starts = torch.nn.utils.rnn.pad_sequence(ev_starts, batch_first=True, padding_value=-1)
         ev_ends   = torch.nn.utils.rnn.pad_sequence(ev_ends,   batch_first=True, padding_value=-1)
         ti_starts = torch.nn.utils.rnn.pad_sequence(ti_starts, batch_first=True, padding_value=-1)
         ti_ends   = torch.nn.utils.rnn.pad_sequence(ti_ends,   batch_first=True, padding_value=-1)
-        return ev_starts, ev_ends, ti_starts, ti_ends
+        return ev_starts, ev_ends, ti_starts, ti_ends, ti_types
 
 # ----------------------------
 # Cross-attention
@@ -248,7 +251,7 @@ class TIEModel(nn.Module):
         out["loss"] = ner_loss + et_loss + ee_loss
         return out
     
-    def evaluate_dataloader(self, dev_loader, id2label_ner, id2label_ee, *, ee_average="micro"):
+    def evaluate_dataloader(self, dev_loader, id2label_ner=ID2LABEL_EVNER, id2label_ee=ID2LABEL_EE, *, ee_average="micro"):
         self.eval()
         device = next(self.parameters()).device
 
@@ -335,11 +338,11 @@ class TIEModel(nn.Module):
     
     def predict(self, text_batch):
         self.eval()
-        tokens = TOKENIZER(text_batch, add_special_tokens=True)
-        H = self.enc(input_ids=torch.tensor(tokens['input_ids']), attention_mask=torch.tensor(tokens['attention_mask'])).last_hidden_state
+        tokens = TOKENIZER(text_batch, add_special_tokens=True, padding=True, truncation=True, return_tensors="pt")
+        H = self.enc(input_ids=tokens['input_ids'], attention_mask=tokens['attention_mask']).last_hidden_state
 
         ner_logits = self.ner(H)["logits"]
-        ev_starts, ev_ends, ti_starts, ti_ends = NERHead.decode(ner_logits)
+        ev_starts, ev_ends, ti_starts, ti_ends, ti_types = NERHead.decode(ner_logits)
         ev_mask = ev_starts != -1
         ti_mask = ti_starts != -1
 
@@ -366,7 +369,27 @@ class TIEModel(nn.Module):
 
         ee_preds = self.ee(hE_ref, hT_e, ee_pairs).argmax(-1)
         ee_triples = torch.cat([ee_pairs, ee_preds.unsqueeze(-1)], -1)
-        return tokens, ev_starts, ev_ends, ti_starts, ti_ends, et_preds, ee_triples, ee_mask
+
+        events = []
+        for i, event_batch in enumerate(ev_starts):
+            temp = []
+            for start, end in zip(event_batch, ev_ends[i]):
+                if start == -1:
+                    continue
+                else:
+                    temp.append((start.item(), end.item(), "EVENT"))
+            events.append(temp)
+        times = []
+        for i, time_batch in enumerate(ti_starts):
+            temp = []
+            for start, end, type_ in zip(time_batch, ti_ends[i], ti_types[i]):
+                if start == -1:
+                    continue
+                else:
+                    temp.append((start.item(), end.item(), type_))
+            times.append(temp)
+
+        return tokens, events, times, et_preds, ee_triples, ee_mask
         
 
 

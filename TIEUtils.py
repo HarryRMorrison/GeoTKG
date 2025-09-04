@@ -6,12 +6,13 @@ from transformers import AutoTokenizer
 import os
 import json
 from copy import deepcopy
+from globals import ID2LABEL_EVNER, ID2LABEL_EE, LABEL2ID_EVNER, LABEL2ID_EE
 
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 TIMEX_TYPES = {"DATE", "TIME", "SET", "DURATION"}
 
-def collator(examples, label2id_ner, label2id_ee):
+def collator(examples, label2id_ner=LABEL2ID_EVNER, label2id_ee=LABEL2ID_EE):
     """
     examples: list of dicts, each like your JSON:
       - "text" or "tokens": tokens per sentence (list[list[str]]) or flat (list[str])

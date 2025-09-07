@@ -1,41 +1,58 @@
 import torch
-from transformers import BartTokenizer, BartForConditionalGeneration, RobertaForSequenceClassification
-from pyrolite.util.time import Timescale
+import torch.nn as nn
+from transformers import BartTokenizer, BartForConditionalGeneration
 from transformers import pipeline
-from spacy.matcher import Matcher
-import spacy
-from spacy.tokens import Doc
+import isodate
+
 
 class TimexNormModel():
-    def __init__(self, model_path):
-        self.normalizer = pipeline(
-            "text2text-generation",
-            model=model_path,
-            tokenizer=model_path,
-            device=0  # or -1 for CPU
-        )
+    def __init__(self, path):
+        super().__init__()
 
-    def preprocessing(self, tokens, timex_locs, timex_types, DCT):
-        input_text = []
-        for i, loc in enumerate(timex_locs):
-            sample = tokens.copy()
-            time = sample.pop(loc)
-            sample.insert(loc, f"<timex type={timex_types[i]}>{time}</timex>")
-            sample.insert(0, f"normalise time <sep>{DCT}<sep> text:")
-            input_text.append(" ".join(sample))
+    @staticmethod
+    def gentext_to_iso8601(gentext: str):
+        parsers = {
+            isodate.parse_date:"DATE",
+            isodate.parse_datetime:"TIME",
+            isodate.parse_time:"TIME",
+            isodate.parse_duration:"DURATION",
+            isodate.parse_tzinfo:"SET",
+        }
 
-        self.tokens = tokens
-        self.input_text = input_text
-        self.time_idxs = timex_locs
+        for parser in parsers:
+            try:
+                out = parser(gentext)
+                type_ = parsers[parser]
+                return out, type_
+            except Exception:
+                continue
 
-    def predict(self):
-        results = self.normalizer(
-            self.input_text,
-            max_length=30,
-            num_beams=5,
-        )
-        cal_times = [[index,result["generated_text"]] for index, result in zip(self.time_idxs, results)]
-        return cal_times
+        # If none of the parsers worked
+        #print(f"UNREC: {gentext}")
+        return None
+    
+    def time_decode(gentext: str, dct: str):
+        if gentext[-3:] == "REF":
+            gentext = dct
+        time, time_type = TimexNormModel.gentext_to_iso8601(gentext)
+        return time, time_type
+    
+    def get_start_and_end_times(all_gentext, dct):
+        '''
+            all_gentext: [B, Ne, Nt] but only linked Nts
+        '''
+        time_trips = []
+        for batch in all_gentext:
+            batch_times = []
+            batch_types = []
+            for event in batch:
+                for time in event:
+                    time_norm, time_type = TimexNormModel.time_decode(time, dct)
+
+        return time_trips
+
+        
+
 
 
         

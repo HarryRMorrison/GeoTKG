@@ -6,7 +6,9 @@ from spacy.util import filter_spans
 from spacy.tokens import Span, Doc, Token
 from neo4j.graph import Node, Relationship
 from transformers import AutoTokenizer
-from globals import ID2LABEL_GEONER
+from globals import ID2LABEL_GEONER, ID2LABEL_EE
+import networkx as nx
+import matplotlib.pyplot as plt
 
 AGENT_PREPS = {"by"}                    # passive agent
 INSTRUMENT_PREPS = {"with", "using", "via", "by"}  # 'by' sometimes means instrument
@@ -283,16 +285,35 @@ class KGConstructor:
     def __init__(self):
         pass
 
-    def __call__(self, roles, temprels, normtimes):
-        nodes = []
-        for instance in roles:
-            print(instance)
-            nodes.append(Node("Event", 
-                              event=instance['event_text'],
-                              event_anchor=instance['event_anchor'],
-                              agent=instance['roles']['agent'], 
-                              patient=instance['roles']['patient'],
-                              location=instance['roles']['location'],
-                              instrument=instance['roles']['instrument'],
-                              ))
-        return nodes
+    def __call__(self, roles, temprels, normtimes=None):
+        '''
+        Args:
+            roles:
+            temprels:
+            normtimes: {'event_idx', 'sTime', 'eTime'}
+        '''
+        G = nx.DiGraph()
+        labels = {}
+        for ev in roles:
+            sub = ev["subject"][0] if ev["subject"] is not None else "None"
+            obj = ev["object"][0] if ev["object"] is not None else "None"
+            labels[ev["event"]] = f"{ev['event'].upper()}\nsubj:{sub}\nobj:{obj}"
+            G.add_node(ev["event"], label="Event", subject=sub, object=obj)
+        
+        for e1, e2, r in temprels:
+            ev1 = roles[e1]["event"]
+            ev2 = roles[e2]["event"]
+            G.add_edge(ev1, ev2, rel=ID2LABEL_EE[r.item()])
+
+        pos = nx.spring_layout(G)  # layout algorithm
+        edge_labels = nx.get_edge_attributes(G, 'rel')
+
+        nx.draw(G, pos, labels=labels,
+                with_labels=True, node_size=2000, node_color="lightblue", font_size=8)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+
+
+        plt.show()
+
+        return

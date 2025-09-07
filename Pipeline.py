@@ -18,7 +18,7 @@ class GeoTKGPipeline:
         #self.NormModel = time_norm
         self.corefresolver = CorefResolver()
         self.slr = SRL()
-        #self.kgconstructor = KGConstructor()
+        self.kgconstructor = KGConstructor()
 
     def pred(self, batch_unresolved_text):
         # 1) Coreference Resolution
@@ -30,62 +30,14 @@ class GeoTKGPipeline:
         # 2b) Geological Entity Extraction
         geo_times, geo_ents = self.GeoNER.predict(batched_resolved_text)
 
-        # for bi, text in enumerate(batched_resolved_text):
-        #     geotime_locs = geo_times[bi]
-        #     ent_locs = geo_ents[bi]
-        #     event_locs = events[bi]
-        #     decodings, out = SRL.decode(text)
-        #     recon, ent_locs, geotime_locs, event_locs, geoent_types = SRL.reconstruct(decodings, out, geotime_locs, ent_locs, event_locs)
-        #     print(f"---------- {bi} ----------")
-        #     print(recon)
-        #     print(ent_locs)
-        #     print(geotime_locs)
-        #     print(event_locs)
-        #     print(geoent_types)
-        # 3a) Temporal Transitivity Event Filtering
-        # for bi in [0,1]:
-        #     print(f"--------------- TEXT {bi+1} ---------------")
-        #     eventsbi = []
-        #     timesbi = []
-        #     geoentsbi = []
-        #     geotimesbi = []
-        #     words = TOKENIZER.convert_ids_to_tokens(tokens['input_ids'][bi])
-
-        #     for s, e, t in events[bi]:
-        #         try:
-        #             eventsbi.append(words[s:e][0].strip("Ġ"))
-        #         except IndexError:
-        #             continue
-        #     print("EVENTS: ", eventsbi)
-
-        #     for s, e, t in times[bi]:
-        #         timesbi.append((words[s:e][0].strip("Ġ"), t))
-        #     print("TIMES: ", timesbi)
-
-        #     for s, e, t in geo_times[bi]:
-        #         geotimesbi.append((words[s:e][0].strip("Ġ"), t))
-        #     print("GEO TIMES: ", geotimesbi)
-
-        #     for s, e, t in geo_ents[bi]:
-        #         geoentsbi.append((words[s:e][0].strip("Ġ"), t))
-        #     print("GEO ENTS: ", geoentsbi)
-
-        #     for trip in ee_triples[bi][ee_mask[bi]]:
-        #         print(f"<{eventsbi[trip[0].item()]} --> {ID2LABEL_EE[trip[2].item()]} --> {eventsbi[trip[1].item()]}>")
-
-        #     for ei, et in enumerate(et_preds[bi]):
-        #         for ti, rel in enumerate(et):
-        #             if rel.item()==1:
-        #                 print(f"<{eventsbi[ei]}, {timesbi[ti]}>")
-
-        # 3b) Semantic Role Labelling
+        # 3) Semantic Role Labelling
         roles = [self.slr(resolved_text, geo_ents[i], geo_times[i], events[i]) for i, resolved_text in enumerate(batched_resolved_text)]
 
         # 4) Time Normalisation -> Use DCTs, ETs, and NormModel
 
 
         # 5) KG Construction
-        #kg = self.kgconstructor(roles, temprels, normtimes)
+        kg = self.kgconstructor(roles[0], ee_triples[0])
         return
 
 if __name__=="__main__":

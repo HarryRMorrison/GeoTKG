@@ -172,7 +172,6 @@ def relaxed_accuracy(
     correct = 0
     for y, p in zip(decoded_labels, decoded_preds):
         if p == y or relaxed_correct_single(y, p):
-            print(y, p)
             correct += 1
     return correct / max(1, len(decoded_labels))
 

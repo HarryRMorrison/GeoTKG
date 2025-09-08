@@ -145,8 +145,16 @@ def retrieve_norm_text(sample):
             sent_id = instance["sent_id"]
             mention = " ".join(text[sent_id][instance['offset'][0]:instance['offset'][1]])
             type_ = instance['type']
-            text = text[max(0, sent_id-1):min(len(text), sent_id+1)]
-            text = " ".join([word for sent in text for word in sent])
+
+            out_text = [word for sent in text for word in sent]
+            lens = [len(sent) for sent in text[:sent_id]]
+            flat_loc_s = sum(lens)+instance['offset'][0]
+            flat_loc_e = sum(lens)+instance['offset'][0]
+
+            text = out_text[max(0, flat_loc_s-100):min(len(out_text), flat_loc_e+100)]
+            #text = text[max(0, sent_id-1):min(len(text), sent_id+1)]
+
+            text = " ".join([word for word in text])
             input_text = f'DCT: {dct} \nTYPE: {type_} \nTEXT: {text} \nSPAN: \"{mention}\"'
             out.append({'input_text':input_text, 'output_text':instance['value']})
             types.append(type_)

@@ -139,6 +139,8 @@ def retrieve_norm_text(sample):
     types = []
     for instance in sample["instances"]:
         if instance['type'] != 'EVENT' and instance['id'] != "t0":
+            if instance['value'] == None or instance['value']=="null":
+                continue
             text = deepcopy(sample['text'])
             sent_id = instance["sent_id"]
             mention = " ".join(text[sent_id][instance['offset'][0]:instance['offset'][1]])

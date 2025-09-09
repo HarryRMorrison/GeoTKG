@@ -97,7 +97,8 @@ class NERHead(nn.Module):
 class CrossAttention(nn.Module):
     def __init__(self, d, heads=6, dropout=0.0):  # set dropout=0.0 for clean probs
         super().__init__()
-        self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout,  add_zero_attn=True)
+        self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout)
+        self.none_token = nn.Parameter(torch.zeros(1, 1, d))
         self.ln = nn.LayerNorm(d)
 
     def forward(self, hE, hT, key_padding_mask, attn_mask):
@@ -109,7 +110,12 @@ class CrossAttention(nn.Module):
         '''
         B, Ne, d = hE.shape
         _, Nt, _ = hT.shape
+        none = self.none_token.expand(B, 1, d)                 # [B,1,d]
+        T_aug = torch.cat([hT, none], dim=1)                     # [B, Nt+1, d]
 
+        # Applying None to key_padding_mask
+        kp_none = torch.zeros(B, 1, dtype=torch.bool, device=key_padding_mask.device)
+        key_padding_mask = torch.cat([~key_padding_mask, kp_none], dim=1)
         # Adding None to hT
         # none = self.none_token.expand(B, 1, d)                 # [B,1,d]
         # T_aug = torch.cat([hT, none], dim=1)                     # [B, Nt+1, d]
@@ -117,12 +123,12 @@ class CrossAttention(nn.Module):
         # Switching to correct syntax
         #atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt).repeat(self.mha.num_heads, 1, 1)
 
-        out, attn = self.mha(hE, hT, hT, key_padding_mask=~key_padding_mask, need_weights=True, average_attn_weights=True)
+        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=key_padding_mask, need_weights=True, average_attn_weights=True)        
         out = self.ln(out + hE)
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt] (avg across heads); with dropout=0, this sums to 1 → pointer probs
 
-        h_time_exp = attn @ hT           # [B, Ne, d] expected time embedding treating attn as P(t|e)
+        h_time_exp = attn @ T_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
 
         return {"h_time_exp": h_time_exp, "hE_refined": out}
 

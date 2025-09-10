@@ -15,11 +15,11 @@ class GeoTKGPipeline:
         self.DCT = DCTs
 
         self.GeoNER = GeoEntityModel()
-        load = torch.load("results\\geo_model\\geo_model.pt")
+        load = torch.load("results\\geo_model\\geo_model_test.pt")
         self.GeoNER.load_state_dict(load['model_state_dict'])
 
         self.TIEModel = TIEModel()
-        load = torch.load("results\\tie_model\\tie_model_epoch15.pt")
+        load = torch.load("results\\tie_model_hT\\tie_model_epoch15.pt")
         self.TIEModel.load_state_dict(load['model_state_dict'])
 
         self.NormModel = TimexNormModel("results/norm_model/time_norm_epoch15.pt")
@@ -36,21 +36,21 @@ class GeoTKGPipeline:
         tokens, events, times, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batched_resolved_text)
 
         # 2b) Geological Entity Extraction
-        geo_times, geo_ents = self.GeoNER.predict(batched_resolved_text)        
-
+        geo_times, geo_ents = self.GeoNER.predict(batched_resolved_text) 
+        print(geo_times)
         roles = []
         normalised_times=[]
         for i, resolved_text in enumerate(batched_resolved_text):
             decodings, out = GeoTKGPipeline.decode(resolved_text)
-            recon, recon_ent_locs, recon_geotime_locs, recon_event_locs, recon_timex_locs = GeoTKGPipeline.reconstruct(decodings, out, geo_times, geo_ents, events, timex_locs)
+            recon, recon_ent_locs, recon_geotime_locs, recon_event_locs, recon_timex_locs = GeoTKGPipeline.reconstruct(decodings, out, geo_times[i], geo_ents[i], events[i], times[i])
             # 3) Semantic Role Labelling
             eso, recon, timex_locs = self.slr(recon, recon_ent_locs, recon_geotime_locs, recon_event_locs, recon_timex_locs)
             roles.append(eso)
             # 4) Time Normalisation
-            normalised_times.append(self.NormModel.predict(recon, timex_locs, self.DCT))
-
+            #normalised_times.append(self.NormModel.predict(recon, timex_locs, self.DCT))
+        print(roles)
         # 5) KG Construction
-        kg = self.kgconstructor(roles[0], ee_triples[0], normalised_times[0])
+        kg = self.kgconstructor(roles[0], ee_triples[0])#, normalised_times[0])
         return
     
     @staticmethod
@@ -75,7 +75,7 @@ class GeoTKGPipeline:
             i += counts[span2tok[i]]
         # If ner detected span is larger than actual span word
         elif locs[i] - i > counts[span2tok[i]]:
-            span = SRL.span_resolve(original, span2tok, i, locs[i])
+            span = GeoTKGPipeline.span_resolve(original, span2tok, i, locs[i])
             i += (locs[i] - i)
         # If ner detected span is equal to actual span word
         else:
@@ -124,24 +124,24 @@ class GeoTKGPipeline:
                 starts_geo_ent.remove(i)
                 new_geo_ent_types.append(geo_entity_types[i])
                 new_geo_ent_locs.append(len(out))
-                span, i = SRL.found_span_resolve(i, geo_entity_locs, counts, span2tok, original)
+                span, i = GeoTKGPipeline.found_span_resolve(i, geo_entity_locs, counts, span2tok, original)
             # Check if geo time
             elif i in starts_geo_time:
                 starts_geo_time.remove(i)
                 new_geo_time_locs.append(len(out))
-                span, i = SRL.found_span_resolve(i, geo_time_locs, counts, span2tok, original)
+                span, i = GeoTKGPipeline.found_span_resolve(i, geo_time_locs, counts, span2tok, original)
             # Check if event
             elif i in starts_events:
                 starts_events.remove(i)
                 new_events_locs.append(len(out))
-                span, i = SRL.found_span_resolve(i, event_locs, counts, span2tok, original)
+                span, i = GeoTKGPipeline.found_span_resolve(i, event_locs, counts, span2tok, original)
             elif i in starts_timex:
                 starts_timex.remove(i)
                 new_timex_types.append(timex_types[i])
                 new_timex_locs.append(len(out))
-                span, i = SRL.found_span_resolve(i, timex_locs, counts, span2tok, original)
+                span, i = GeoTKGPipeline.found_span_resolve(i, timex_locs, counts, span2tok, original)
             else:
-                span = SRL.span_resolve(original, span2tok, i, i+1)
+                span = GeoTKGPipeline.span_resolve(original, span2tok, i, i+1)
                 i += counts[span2tok[i]]
             out.append(span)
 
@@ -150,10 +150,12 @@ class GeoTKGPipeline:
 
 if __name__=="__main__":
     model = GeoTKGPipeline(DCTs = "2024-03-22")
-    text1 = "The Henry River Project began on the south-western limb of Perth in 2004. A year later, they discoverd a quartz vein formation. The formation was dated to the Archean. Other projects have found gold dated to the Jurassic or ~1000ma."
-    text2 = "The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist."
+    #text1 = "The Henry River Project began on the south-western limb of Perth in 2004. A year later, they discoverd a quartz vein formation, which the team dated to the Jurassic or ~1000ma."
+    #text2 = "The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist."
     #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project started, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
-    #text = "In 2019, BHP found a rock formation which they dated to the Archean."
+    text1 = "In 2019, BHP found an rock formation characterised by traces of pyrite. BHP transported the rock to Perth later that year."
+    #extract = "The Lyons project area consists of rocks that are constituents of the Meso-Proterozoic Edmund Basin, which is a component of the West Australian cratonic complex. This is an assemblage of the Pilbara and Yigarn cratons and the Glenburgh Terrane. The Pilbra Craton and Glenburgh Terrane amalgamated first, and during the process developed the overlying Hamersley and Ashburton Basins. A magmatic package along the southern margin of the Glengurgh terrain (Dalgaringa Arc) has been interpreted to have chemical signatures to that of continental margin arcs (e.g. Sth America), suggesting that the Yigarn Craton was closing northwards and subducting oceanic crust beneath the combined Pilbra Craton and Glenburgh terrane, eventually culminating in the amalgamation of the Yigarn Craton (Glenburgh Orogeny 2005Ma to 1950Ma). The Mangaroon Orogeny - ~1650Ma, although the driver of orogenesis is currently unknown, with its high-temperature — low-pressure metamorphic conditions, and short duration of metamorphism, magmatism and sedimentation imply an extension dominated orogeny. This event re-activated the terrane bounding trans-crustal faults (e.g. Lyons River, Talga, Cardilya Faults) and initiated the development of the Edmund Basin (unconformable on the Glenburgh Terrain and Ashburton Basin)."
+    #extract = "Multiple drill lines along 20km of the Prairie Downs Fault (PDF) were completed in the 2017-2018 exploration season. A total of 6276.6m was drilled for 54 drill holes. The aim of the program was to test 20km of the PDF for base metal mineralisation in tenements E52/1758 and E52/1926. Numerous drill holes intersected significant base metal, vanadium and gold mineralisation including 19m @ 5.9% Pb, 0.1% Zn, 0.1% Cu and 40 g/t Ag from 87m in hole PDP456, at the Husky South prospect. Down hole total electro magnetics was completed on the two diamond drill holes PDD504 and PDD506 at Husky South. No significant off hole responses were detected. "
     model.pred([text1])
 

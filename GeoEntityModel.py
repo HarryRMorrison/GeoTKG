@@ -4,10 +4,10 @@ from transformers import AutoModel
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
 from globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
 from transformers import AutoTokenizer
-TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
+TOKENIZER = AutoTokenizer.from_pretrained("roberta-large", add_prefix_space=True)
     
 class GeoEntityModel(nn.Module):
-    def __init__(self, base: str = "roberta-base", num_ner: int = len(LABEL2ID_GEONER), dropout: float = 0.1):
+    def __init__(self, base: str = "roberta-large", num_ner: int = len(LABEL2ID_GEONER), dropout: float = 0.1):
         super().__init__()
         # Transformer Encoder
         self.enc = AutoModel.from_pretrained(base)

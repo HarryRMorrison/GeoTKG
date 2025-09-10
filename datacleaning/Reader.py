@@ -7,6 +7,7 @@ from spacy.lang.en import English
 import json
 #import numpy as np
 from copy import deepcopy
+import re
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAWDATA_PATH = os.path.join(BASE_DIR, "rawdata")
@@ -100,7 +101,6 @@ class OzRockReader(Reader):
 
     def read(self):     
         out = {}
-
         for filepath in self.file_paths_to_read:
             with open(filepath, 'r') as file:
                 lines = file.readlines()

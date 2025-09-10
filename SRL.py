@@ -8,30 +8,27 @@ class SRL:
     def __init__(self):
         self.nlp = spacy.load("en_core_web_trf")
         self.matcher = Matcher(self.nlp.vocab)
+        # 1) No-space case: "1000ma", "~1,234.5MA", "7Ma", etc.  (single token)
         pattern_no_space = [
-            {"TEXT": {"REGEX": r"^~?\d+(\.\d+)?ma$"}}
+            {"TEXT": {"REGEX": r'(?i)^[~∼≈]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?ma$'}}
         ]
-        # with-space: “~1000 ma” or “1000.00 ma”
+
+        # 2) Space case: "1000 ma", "~1,234.5 Ma"  (two tokens)
         pattern_with_space = [
-            {"TEXT": {"REGEX": r"^~?\d+(\.\d+)?$"}},
-            {"LOWER": "ma"}
+            {"TEXT": {"REGEX": r'^[~∼≈]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$'}},
+            {"LOWER": "ma"}  # case-insensitive match for the unit token
         ]
-        self.matcher.add("GEO_DATE", [pattern_no_space, pattern_with_space])
+
+        self.matcher.add("TIMESCALE", [pattern_no_space, pattern_with_space])
     
-    def geo_timescale_norm(self, text, geo_time_idxs):
+    def geo_timescale_norm(text):
         ts = Timescale()
-        geo_times = []
-        for loc in geo_time_idxs:
-            min, max = ts.text2age(self.tokens[loc])
-            geo_times.append([loc, (min, max)])
-
-        doc = self.nlp(text)
-
-        for _, start, end in self.matcher(doc):
-            date = int(doc[start:end].text.lower().strip("~ma"))
-            geo_times.append([start, (date, None)])
-        
-        return geo_times
+        try:
+            date = int(text.lower().strip("~ma"))
+            return (date, None)
+        except:
+            min, max = ts.text2age(text)
+            return (min, max)
 
     def char_locs(recon, ent_locs, geotime_locs, event_locs):
         text = ""
@@ -48,19 +45,27 @@ class SRL:
                 else:
                     text += f" {span}"
         return out, text
-
-    def noun_phrase(tok: Token) -> str:
-        """Return a readable NP for a token (prefer its noun_chunk; fallback to subtree span)."""
+    
+    # 1) Return a Span instead of plain text
+    def noun_phrase_span(tok: Token) -> Span:
+        """Return a Span NP for a token (prefer its noun_chunk; fallback to subtree span)."""
         doc = tok.doc
         for nc in doc.noun_chunks:
             if nc.start <= tok.i < nc.end:
-                return nc.text
-        span = doc[tok.left_edge.i : tok.right_edge.i + 1]
-        return span.text
+                return nc
+        return doc[tok.left_edge.i : tok.right_edge.i + 1]
+
+    def span_check_convert_timescale(sp: Span) -> bool:
+        """True if any token or entity inside the span is labeled TIMESCALE."""
+        norm_geo_times = []
+        # (a) token-level ent_type_
+        for t in sp:
+            if t.ent_type_ == "TIMESCALE":
+                norm_geo_times.append((t,SRL.geo_timescale_norm(t.text)))
+        return norm_geo_times
 
     def extract_subject_object(event_node: Token):
-        """Return (subjects, objects) lists for a verb/event root token."""
-        subjects, objects = [], []
+        subjects_sp, objects_sp = [], []
 
         # voice detection
         is_passive = any(c.dep_ in ("auxpass", "nsubjpass", "csubjpass") for c in event_node.children)
@@ -69,71 +74,80 @@ class SRL:
         if not is_passive:
             for c in event_node.children:
                 if c.dep_ in ("nsubj", "csubj"):
-                    subjects.append(SRL.noun_phrase(c))
+                    subjects_sp.append(SRL.noun_phrase_span(c))
         else:
-            # semantic subject via passive agent: agent -> pobj
             for ag in (c for c in event_node.children if c.dep_ == "agent"):
                 pobj = next((gc for gc in ag.children if gc.dep_ == "pobj"), None)
                 if pobj:
-                    subjects.append(SRL.noun_phrase(pobj))
+                    subjects_sp.append(SRL.noun_phrase_span(pobj))
 
-        # backoff: coordinated verbs often share subject with head
-        if not subjects and event_node.dep_ == "conj":
+        if not subjects_sp and event_node.dep_ == "conj":
             for c in event_node.head.children:
                 if c.dep_ in ("nsubj", "csubj"):
-                    subjects.append(SRL.noun_phrase(c))
+                    subjects_sp.append(SRL.noun_phrase_span(c))
 
         # ---- objects & complements ----
         for c in event_node.children:
-            if c.dep_ in ("dobj", "obj", "attr", "oprd"):
-                objects.append(SRL.noun_phrase(c))
-            elif c.dep_ in ("ccomp", "xcomp"):
-                # You can use the whole clause; tweak as needed
-                objects.append(c.subtree.text)  # or c.text
-            elif c.dep_ == "dative":  # indirect object
-                objects.append(SRL.noun_phrase(c))
+            if c.dep_ in ("dobj", "obj", "attr", "oprd", "dative"):
+                objects_sp.append(SRL.noun_phrase_span(c))
             elif c.dep_ == "prep":
                 pobj = next((gc for gc in c.children if gc.dep_ == "pobj"), None)
                 if pobj:
-                    objects.append(SRL.noun_phrase(pobj))
+                    objects_sp.append(SRL.noun_phrase_span(pobj))
 
-        # In passives, the semantic "object" is often the nsubjpass
         if is_passive:
             for c in event_node.children:
                 if c.dep_ in ("nsubjpass", "csubjpass"):
-                    objects.append(SRL.noun_phrase(c))
+                    objects_sp.append(SRL.noun_phrase_span(c))
 
-        # de-dup while preserving order
-        seen = set()
-        subjects = [s for s in subjects if not (s in seen or seen.add(s))]
-        seen.clear()
-        objects = [o for o in objects if not (o in seen or seen.add(o))]
+        # de-dup by (start,end)
+        def dedup_spans(spans):
+            seen = set()
+            out = []
+            for sp in spans:
+                key = (sp.start, sp.end)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(sp)
+            return out
+
+        subjects_sp = dedup_spans(subjects_sp)
+        objects_sp  = dedup_spans(objects_sp)
+
+        # Return structured info (text + TIMESCALE flag)
+        subjects = [{"text": sp.text, "is_timescale": SRL.span_check_convert_timescale(sp)} for sp in subjects_sp]
+        objects  = [{"text": sp.text, "is_timescale": SRL.span_check_convert_timescale(sp)} for sp in objects_sp]
 
         return subjects, objects
 
+
     # Single example at a time
-    def __call__(self, text, geo_ents, geo_times, events, timex_locs):
-        decodings, out = SRL.decode(text)
-        recon, ent_locs, geotime_locs, event_locs, timex_locs = SRL.reconstruct(decodings, out, geo_times, geo_ents, events, timex_locs)
-        event_char_spans, text = SRL.char_locs(recon, ent_locs, geotime_locs, event_locs)
+    def __call__(self, recon, ent_locs, geotime_locs, event_locs, timex_locs):
+        char_spans, text = SRL.char_locs(recon, ent_locs, geotime_locs, event_locs)
 
         # 1) Tokenize only (no pipeline yet)
         doc = self.nlp.make_doc(text)
 
         # 2) Create spans & merge them into single tokens
         spans = []
-        for s, e, label in event_char_spans:
+        for s, e, label in char_spans:
             span = doc.char_span(s, e, label=label, alignment_mode="expand")
             if span is not None:
                 spans.append(span)
+        
+        matches = self.matcher(doc)
+        label_id = doc.vocab.strings["TIMESCALE"]  # integer hash for the label
+        for _, s, e in matches:
+            spans.append(Span(doc, s, e, label=label_id))
 
         spans = filter_spans(spans)  # avoid overlaps
         # Keep the entity labels and collapse to single tokens
         with doc.retokenize() as retok:
             for sp in spans:
                 retok.merge(sp, attrs={"ENT_TYPE": sp.label_})
-
-        doc = self.nlp(doc)
+        
+        with self.nlp.select_pipes(disable=["ner"]):
+            doc = self.nlp(doc)
 
         # Collect merged EVENT tokens (now single tokens with ENT_TYPE='EVENT')
         event_tokens = [t for t in doc if t.ent_type_ == "EVENT"]

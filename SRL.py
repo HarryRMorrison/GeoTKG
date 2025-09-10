@@ -115,8 +115,8 @@ class SRL:
         objects_sp  = dedup_spans(objects_sp)
 
         # Return structured info (text + TIMESCALE flag)
-        subjects = [{"text": sp.text, "is_timescale": SRL.span_check_convert_timescale(sp)} for sp in subjects_sp]
-        objects  = [{"text": sp.text, "is_timescale": SRL.span_check_convert_timescale(sp)} for sp in objects_sp]
+        subjects = [{"text": sp.text, "timescale": SRL.span_check_convert_timescale(sp)} for sp in subjects_sp]
+        objects  = [{"text": sp.text, "timescale": SRL.span_check_convert_timescale(sp)} for sp in objects_sp]
 
         return subjects, objects
 

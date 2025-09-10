@@ -7,6 +7,15 @@ from CorefResolver import CorefResolver
 import torch
 import numpy as np
 from transformers import AutoTokenizer
+import warnings
+from transformers import logging as hf_logging
+
+# Suppress FutureWarnings
+warnings.filterwarnings("ignore", message=".*resume_download.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*autocast.*", category=FutureWarning)
+
+# Suppress Hugging Face model init warnings
+hf_logging.set_verbosity_error()
 
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
@@ -154,7 +163,7 @@ if __name__=="__main__":
     #text2 = "The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist."
     #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project started, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
-    text1 = "In 2019, BHP found an rock formation characterised by traces of pyrite. BHP transported the rock to Perth later that year."
+    text1 = "In 2019, BHP found a rock formation characterised by traces of pyrite. BHP transported the rock to Perth later that year."
     #extract = "The Lyons project area consists of rocks that are constituents of the Meso-Proterozoic Edmund Basin, which is a component of the West Australian cratonic complex. This is an assemblage of the Pilbara and Yigarn cratons and the Glenburgh Terrane. The Pilbra Craton and Glenburgh Terrane amalgamated first, and during the process developed the overlying Hamersley and Ashburton Basins. A magmatic package along the southern margin of the Glengurgh terrain (Dalgaringa Arc) has been interpreted to have chemical signatures to that of continental margin arcs (e.g. Sth America), suggesting that the Yigarn Craton was closing northwards and subducting oceanic crust beneath the combined Pilbra Craton and Glenburgh terrane, eventually culminating in the amalgamation of the Yigarn Craton (Glenburgh Orogeny 2005Ma to 1950Ma). The Mangaroon Orogeny - ~1650Ma, although the driver of orogenesis is currently unknown, with its high-temperature — low-pressure metamorphic conditions, and short duration of metamorphism, magmatism and sedimentation imply an extension dominated orogeny. This event re-activated the terrane bounding trans-crustal faults (e.g. Lyons River, Talga, Cardilya Faults) and initiated the development of the Edmund Basin (unconformable on the Glenburgh Terrain and Ashburton Basin)."
     #extract = "Multiple drill lines along 20km of the Prairie Downs Fault (PDF) were completed in the 2017-2018 exploration season. A total of 6276.6m was drilled for 54 drill holes. The aim of the program was to test 20km of the PDF for base metal mineralisation in tenements E52/1758 and E52/1926. Numerous drill holes intersected significant base metal, vanadium and gold mineralisation including 19m @ 5.9% Pb, 0.1% Zn, 0.1% Cu and 40 g/t Ag from 87m in hole PDP456, at the Husky South prospect. Down hole total electro magnetics was completed on the two diamond drill holes PDD504 and PDD506 at Husky South. No significant off hole responses were detected. "
     model.pred([text1])

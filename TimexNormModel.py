@@ -1,6 +1,7 @@
 import torch
 from transformers import BartTokenizer, BartForConditionalGeneration
 import isodate
+from datetime import timedelta
 
 class TimexNormModel():
     def __init__(self, path):
@@ -48,11 +49,12 @@ class TimexNormModel():
             isodate.parse_datetime,
             isodate.parse_time,
             isodate.parse_duration,
-            isodate.parse_tzinfo,
         }
         for parser in parsers:
             try:
-                return parser(gentext)
+                output = parser(gentext)
+                if output is not None:
+                    return output
             except Exception:
                 continue
             return None
@@ -60,7 +62,10 @@ class TimexNormModel():
     def time_decode(gentext: str, dct: str):
         if gentext[-3:] == "REF":
             gentext = dct
-        return TimexNormModel.gentext_to_iso8601(gentext)
+        parsed = TimexNormModel.gentext_to_iso8601(gentext)
+        if type(parsed) == isodate.duration.Duration:
+            parsed = TimexNormModel.gentext_to_iso8601(dct) + parsed
+        return parsed
     
     def to_datetime_abs(time, dct):
         # if type(time) == 

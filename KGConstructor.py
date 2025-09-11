@@ -6,7 +6,7 @@ class KGConstructor:
     def __init__(self):
         pass
 
-    def __call__(self, roles, temprels, normtimes=None):
+    def __call__(self, roles, temprels, normtimes, et_preds):
         '''
         Args:
             roles:
@@ -38,6 +38,13 @@ class KGConstructor:
             #         G.add_node(text, label="Entity", display=text)
             #         G.add_edge(ev["event"], text, rel="HAS_OBJECT")
 
+        for ei, e in enumerate(et_preds):
+            ev = f"event_{ei}"
+            for i, t in enumerate(e):
+                if t==1:
+                    time = normtimes[i]
+                    G.add_node(time.strftime("%Y-%m-%d"), label="Time", display=time.strftime("%Y-%m-%d"))
+                    G.add_edge(ev, time.strftime("%Y-%m-%d"), rel="HAS_TIME")
 
             # for time in normtimes[i]:
             #     G.add_node(time.strftime("%Y-%m-%d"), label="Time")

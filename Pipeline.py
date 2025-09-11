@@ -43,10 +43,9 @@ class GeoTKGPipeline:
 
         # 2a) Temporal Information Extraction
         tokens, events, times, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batched_resolved_text)
-
         # 2b) Geological Entity Extraction
         geo_times, geo_ents = self.GeoNER.predict(batched_resolved_text) 
-        print(geo_times)
+        #print(geo_times)
         roles = []
         normalised_times=[]
         for i, resolved_text in enumerate(batched_resolved_text):
@@ -56,10 +55,12 @@ class GeoTKGPipeline:
             eso, recon, timex_locs = self.slr(recon, recon_ent_locs, recon_geotime_locs, recon_event_locs, recon_timex_locs)
             roles.append(eso)
             # 4) Time Normalisation
-            #normalised_times.append(self.NormModel.predict(recon, timex_locs, self.DCT))
+            normalised_times.append(self.NormModel.predict(recon, timex_locs, self.DCT))
+        
+        print(normalised_times)
         print(roles)
         # 5) KG Construction
-        kg = self.kgconstructor(roles[0], ee_triples[0])#, normalised_times[0])
+        kg = self.kgconstructor(roles[0], ee_triples[0], normalised_times[0], et_preds[0])
         return
     
     @staticmethod
@@ -128,6 +129,8 @@ class GeoTKGPipeline:
         i = 1
 
         while i < len(tokens[:-1]):
+            if i == 66:
+                print("here")
             # Check if geo ent
             if i in starts_geo_ent:
                 starts_geo_ent.remove(i)
@@ -158,13 +161,13 @@ class GeoTKGPipeline:
         return out, list(zip(new_geo_ent_locs,new_geo_ent_types)), list(zip(new_geo_time_locs,["TIMESCALE"]*len(new_geo_time_locs))), list(zip(new_events_locs, ["EVENT"]*len(new_events_locs))), list(zip(new_timex_locs,new_timex_types))
 
 if __name__=="__main__":
-    model = GeoTKGPipeline(DCTs = "2024-03-22")
+    model = GeoTKGPipeline(DCTs = "2018-12-17")
     #text1 = "The Henry River Project began on the south-western limb of Perth in 2004. A year later, they discoverd a quartz vein formation, which the team dated to the Jurassic or ~1000ma."
     #text2 = "The mineralisation was characterised by traces of disseminated pyrite with zones of trace pyrrhotite and chalcopyrite in felsic schist."
     #text = "The Henry River Project began on the south-western limb of Perth in 2004. A year after the project started, they discoverd a quartz vein formation."
     #text = "1000ma 1000 ma 1000 Ma 1000.102 ma 1000.102ma ~1000ma ~1000 ma ~1000.22ma ~1000.22 ma"
-    text1 = "In 2019, BHP found a rock formation characterised by traces of pyrite. BHP transported the rock to Perth later that year."
+    text1 = "In 2019, BHP found a rock formation characterised by traces of pyrite. BHP transported the rock to Perth in 2020."
     #extract = "The Lyons project area consists of rocks that are constituents of the Meso-Proterozoic Edmund Basin, which is a component of the West Australian cratonic complex. This is an assemblage of the Pilbara and Yigarn cratons and the Glenburgh Terrane. The Pilbra Craton and Glenburgh Terrane amalgamated first, and during the process developed the overlying Hamersley and Ashburton Basins. A magmatic package along the southern margin of the Glengurgh terrain (Dalgaringa Arc) has been interpreted to have chemical signatures to that of continental margin arcs (e.g. Sth America), suggesting that the Yigarn Craton was closing northwards and subducting oceanic crust beneath the combined Pilbra Craton and Glenburgh terrane, eventually culminating in the amalgamation of the Yigarn Craton (Glenburgh Orogeny 2005Ma to 1950Ma). The Mangaroon Orogeny - ~1650Ma, although the driver of orogenesis is currently unknown, with its high-temperature — low-pressure metamorphic conditions, and short duration of metamorphism, magmatism and sedimentation imply an extension dominated orogeny. This event re-activated the terrane bounding trans-crustal faults (e.g. Lyons River, Talga, Cardilya Faults) and initiated the development of the Edmund Basin (unconformable on the Glenburgh Terrain and Ashburton Basin)."
-    #extract = "Multiple drill lines along 20km of the Prairie Downs Fault (PDF) were completed in the 2017-2018 exploration season. A total of 6276.6m was drilled for 54 drill holes. The aim of the program was to test 20km of the PDF for base metal mineralisation in tenements E52/1758 and E52/1926. Numerous drill holes intersected significant base metal, vanadium and gold mineralisation including 19m @ 5.9% Pb, 0.1% Zn, 0.1% Cu and 40 g/t Ag from 87m in hole PDP456, at the Husky South prospect. Down hole total electro magnetics was completed on the two diamond drill holes PDD504 and PDD506 at Husky South. No significant off hole responses were detected. "
+    extract = "Multiple drill lines along 20km of the Prairie Downs Fault (PDF) were completed in the 2017-2018 exploration season. A total of 6276.6m was drilled for 54 drill holes. The aim of the program was to test 20km of the PDF for base metal mineralisation in tenements E52 and E52. Numerous drill holes intersected significant base metal, vanadium and gold mineralisation including 19m @ 5.9% Pb, 0.1% Zn, 0.1% Cu and 40 g/t Ag from 87m in hole PDP456, at the Husky South prospect. Down hole total electro magnetics was completed on the two diamond drill holes PDD504 and PDD506 at Husky South. No significant off hole responses were detected. "
     model.pred([text1])
 

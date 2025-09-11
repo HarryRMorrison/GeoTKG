@@ -1,6 +1,6 @@
 import networkx as nx
 import matplotlib.pyplot as plt
-from globals import ID2LABEL_GEONER, ID2LABEL_EE
+from training.models.globals import ID2LABEL_GEONER, ID2LABEL_EE
 
 class KGConstructor:
     def __init__(self):

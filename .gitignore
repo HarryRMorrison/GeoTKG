@@ -2,8 +2,7 @@
 /datacleaning/__pycache__
 /venv
 /__pycache__
-/cleandata
 /results
 /results/TimeNormBart
 /results/geo_model
-/results
+training/results

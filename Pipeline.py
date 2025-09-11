@@ -1,7 +1,7 @@
 from SRL import SRL
-from TIEModel import TIEModel
-from GeoEntityModel import GeoEntityModel
-from TimexNormModel import TimexNormModel
+from training.models.TIEModel import TIEModel
+from training.models.GeoEntityModel import GeoEntityModel
+from training.models.TimexNormModel import TimexNormModel
 from KGConstructor import KGConstructor
 from CorefResolver import CorefResolver
 import torch

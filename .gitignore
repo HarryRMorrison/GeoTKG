@@ -1,6 +1,7 @@
 /rawdata
 /datacleaning/__pycache__
 /venv
+/llama_env
 /__pycache__
 /results
 /results/TimeNormBart

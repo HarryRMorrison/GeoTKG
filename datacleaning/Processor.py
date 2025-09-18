@@ -91,12 +91,12 @@ def reindex(data):
 
     return data
 
-def save_data(data, path):
+def save_data(data, test_data, path):
     import json
-    if 'test' not in data:
-        cycle = [("train.json", data['train']), ("eval.json", data['eval'])]
-    else:
-        cycle = [("train.json", data['train']), ("eval.json", data['eval']), ("test.json", data['test'])]
+    # if 'test' not in data:
+    #     cycle = [("train.json", data['train']), ("eval.json", data['eval'])]
+    # else:
+    cycle = [("train.json", data['train']), ("eval.json", data['eval']), ("test.json", test_data)]
     for name, set in cycle:
         with open(path+name, 'w') as json_file:
             for sample in set:
@@ -115,17 +115,20 @@ def combine_and_stratify(data):
                     all_data.append(sample)
                     y.append(class_out)
 
-    X_train, X_test, y_train, y_test = train_test_split(all_data, y, test_size=0.1, random_state=42, stratify=y, shuffle=True)
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42, stratify=y_train, shuffle=True)
-    return {"train": X_train, "eval": X_val, "test": X_test}
+    X_train, X_val, y_train, y_val = train_test_split(all_data, y, test_size=0.1, random_state=42, stratify=y, shuffle=True)
+    return {"train": X_train, "eval": X_val}
 
 def obtain_tie_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = {}
     for name, reader in [("TempEval3", TempEval3Reader),("TBDense", TBDenseReader),('MAVEN_ERE', MAVENReader)]:
-        data[name] = get_dataset(reader(path + name))
+        extracted = get_dataset(reader(path + name))
+        if name == "TempEval3":
+            test_set = extracted.pop("eval")
+        else:
+            data[name] = extracted
     bal, cnts = data_temprel_select(data)
     bal = combine_and_stratify(bal)
-    save_data(bal, path = "D:\\GeoTKG\\cleandata\\tie\\")
+    save_data(bal, test_set, path = "D:\\GeoTKG\\cleandata\\tie\\")
 
 def obtain_geo_data(path = "D:\\GeoTKG\\rawdata\\"):
     reader = OzRockReader(path + "OzRock")
@@ -183,4 +186,4 @@ def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
                 
     
 if __name__ == "__main__":
-    obtain_norm_data()
+    obtain_tie_data()

@@ -91,16 +91,53 @@ def reindex(data):
 
     return data
 
-def save_data(data, test_data, path):
+def save_data(data, path):
     import json
-    # if 'test' not in data:
-    #     cycle = [("train.json", data['train']), ("eval.json", data['eval'])]
-    # else:
-    cycle = [("train.json", data['train']), ("eval.json", data['eval']), ("test.json", test_data)]
+    if 'test' not in data:
+        cycle = [("train.json", data['train']), ("eval.json", data['eval'])]
+    else:
+        cycle = [("train.json", data['train']), ("eval.json", data['eval']), ("test.json", data['test'])]
     for name, set in cycle:
         with open(path+name, 'w') as json_file:
             for sample in set:
                 json_file.write(json.dumps(sample)+"\n")
+
+def get_quintuples_test_data(data, y):
+    import numpy as np
+    norms, norms_y = [], []
+    defaults, defaults_y = [], []
+    for i, sample in enumerate(data):
+        add_sample = False
+        for instance in sample['instances']:
+            if instance['type'] != 'EVENT' and 'value' in instance:
+                if instance['value'] is not None and instance['value'] != "null":
+                    add_sample = True
+                    break
+        if add_sample:
+            norms.append(sample)
+            norms_y.append(y[i])
+        else:
+            defaults.append(sample)
+            defaults_y.append(y[i])
+
+    values, counts = np.unique(y, return_counts=True)
+    props = {values[i]:{"current":0, "target":np.ceil(150*(counts[i]/len(y)))} for i in range(len(values))}
+    test_set = []
+    new_data = []
+    new_y = []
+    for i, sample in enumerate(norms):
+        if props[norms_y[i]]["current"] < props[norms_y[i]]["target"]:
+            test_set.append(sample)
+            props[norms_y[i]]["current"] += 1
+        else:
+            new_data.append(sample)
+            new_y.append(norms_y[i])
+
+    new_data.extend(defaults)
+    new_y.extend(defaults_y)
+
+    return test_set, new_data, new_y
+
 
 def combine_and_stratify(data):
     all_data = []
@@ -115,20 +152,19 @@ def combine_and_stratify(data):
                     all_data.append(sample)
                     y.append(class_out)
 
-    X_train, X_val, y_train, y_val = train_test_split(all_data, y, test_size=0.1, random_state=42, stratify=y, shuffle=True)
-    return {"train": X_train, "eval": X_val}
+    test_set, new_data, new_y = get_quintuples_test_data(all_data, y)
+
+    X_train, X_val, y_train2, y_val = train_test_split(new_data, new_y, test_size=0.1, random_state=42, stratify=new_y, shuffle=True)
+    return {"train": X_train, "eval": X_val, "test": test_set}
 
 def obtain_tie_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = {}
     for name, reader in [("TempEval3", TempEval3Reader),("TBDense", TBDenseReader),('MAVEN_ERE', MAVENReader)]:
         extracted = get_dataset(reader(path + name))
-        if name == "TempEval3":
-            test_set = extracted.pop("eval")
-        else:
-            data[name] = extracted
+        data[name] = extracted
     bal, cnts = data_temprel_select(data)
     bal = combine_and_stratify(bal)
-    save_data(bal, test_set, path = "D:\\GeoTKG\\cleandata\\tie\\")
+    save_data(bal, path = "D:\\GeoTKG\\cleandata\\tie\\")
 
 def obtain_geo_data(path = "D:\\GeoTKG\\rawdata\\"):
     reader = OzRockReader(path + "OzRock")

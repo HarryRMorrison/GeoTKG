@@ -439,12 +439,15 @@ class TempEval3Reader(TimeMLReader):
 
     def read(self, dataset_name="TempEval3"):
         data, out = [], {}
+        blacklist = [fp.split('/')[-1] for fp in TBDenseReader(os.path.join(RAWDATA_PATH, "TBDense")).file_paths_to_read]
         split_num = 4
         current_folder = self.file_paths_to_read[0].split('\\')[split_num]
         num_f = len(self.file_paths_to_read)
         print(f"Starting {current_folder}")
 
         for i, filepath in enumerate(self.file_paths_to_read):
+            if filepath.split('\\')[-1] in blacklist:
+                continue
             if filepath.split('\\')[split_num] != current_folder:
                 out[str(current_folder)] = deepcopy(data)
                 current_folder = filepath.split('\\')[split_num]

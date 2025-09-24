@@ -101,46 +101,40 @@ class CrossAttention(nn.Module):
         self.none_token = nn.Parameter(torch.zeros(1, 1, d))
         self.ln = nn.LayerNorm(d)
 
-    def forward(self, hE, hT, key_padding_mask, attn_mask):
+    def forward(self, Q, KV, key_padding_mask):
         '''
         hE: [B, Ne, d]
         hT: [B, Nt, d]
         key_padding_mask: [B, Nt]
         attn_mask: [B, Ne]
         '''
-        B, Ne, d = hE.shape
-        _, Nt, _ = hT.shape
+        B, Nq, d = Q.shape
+        _, Nkv, _ = KV.shape
         none = self.none_token.expand(B, 1, d)                 # [B,1,d]
-        T_aug = torch.cat([hT, none], dim=1)                     # [B, Nt+1, d]
+        KV_aug = torch.cat([KV, none], dim=1)                     # [B, Nt+1, d]
 
         # Applying None to key_padding_mask
         kp_none = torch.zeros(B, 1, dtype=torch.bool, device=key_padding_mask.device)
         key_padding_mask = torch.cat([~key_padding_mask, kp_none], dim=1)
-        # Adding None to hT
-        # none = self.none_token.expand(B, 1, d)                 # [B,1,d]
-        # T_aug = torch.cat([hT, none], dim=1)                     # [B, Nt+1, d]
-        
-        # Switching to correct syntax
-        #atn_mask = ~attn_mask.unsqueeze(-1).repeat(1, 1, Nt).repeat(self.mha.num_heads, 1, 1)
 
-        out, attn = self.mha(hE, T_aug, T_aug, key_padding_mask=key_padding_mask, need_weights=True, average_attn_weights=True)        
-        out = self.ln(out + hE)
+        # Get output
+        out, attn = self.mha(Q, KV_aug, KV_aug, key_padding_mask=key_padding_mask, need_weights=True, average_attn_weights=True)        
+        out = self.ln(out + Q)
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt] (avg across heads); with dropout=0, this sums to 1 → pointer probs
 
-        h_time_exp = attn @ T_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
+        h_time_exp = attn @ KV_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
 
-        return {"h_time_exp": h_time_exp, "hE_refined": out}
+        return {"h_KV_exp": h_time_exp, "Q_refined": out}
 
 # ----------------------------
 # Event-Event Temporal Relation Head
 # ----------------------------
 class EEHead(nn.Module):
-    def __init__(self, d, n_labels, hidden=256*2, dropout=0.1):
+    def __init__(self, hidden_size, n_labels, dropout=0.1):
         super().__init__()
-        in_dim = 6*d
         self.drop = nn.Dropout(dropout)
-        self.linear = nn.Linear(in_dim, n_labels)
+        self.linear = nn.Linear(hidden_size, n_labels)
 
     def forward(self, hE, hT_exp, pairs):
         B, Ne, d = hE.shape
@@ -193,7 +187,8 @@ class TIEModel(nn.Module):
         d = self.enc.config.hidden_size
         self.ner = NERHead(d, num_ner)
         self.span_pool = MaxSpanPool
-        self.ca = CrossAttention(d=d, heads=heads)
+        self.ev_to_ti_ca = CrossAttention(d=d, heads=6)
+        self.ti_to_ev_ca = CrossAttention(d=d, heads=6)
         self.et = ETHead(d*2)
         self.ee = EEHead(d, n_labels=ee_labels)
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
@@ -225,13 +220,17 @@ class TIEModel(nn.Module):
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
         hT = self.span_pool(H, ti_starts, ti_ends)  # [B, K, d] for times
 
-        # 4) Cross-Attention (events + times)
-        ca_out = self.ca(hE, hT, key_padding_mask=ti_mask, attn_mask = ev_mask)
-        hE_ref = ca_out["hE_refined"]
-        hT_e = ca_out["h_time_exp"]
+        # 4a) Cross-Attention (Event->Time)
+        e_to_t_ca_out = self.ev_to_ti_ca(hE, hT, key_padding_mask=ti_mask)
+        hE_ref = e_to_t_ca_out["Q_refined"]
+        hT_e = e_to_t_ca_out["h_KV_exp"]
+
+        # 4b) Cross-Attention (Time->Event)
+        e_to_t_ca_out = self.ti_to_ev_ca(hE, hT, key_padding_mask=ti_mask)
+        hT_ref = e_to_t_ca_out["Q_refined"]
 
         # 5a) Event Time Linking
-        et_out = self.et(hT, hE_ref)
+        et_out = self.et(hT_ref, hE_ref)
         et_logits = et_out['logits']
         mask = ev_ti_gold != -100
         et_loss = self.loss_bce(et_logits[mask].view(-1), 
@@ -252,21 +251,19 @@ class TIEModel(nn.Module):
         out["loss"] = ner_loss + et_loss + ee_loss
         return out
     
-    def evaluate_dataloader(self, dev_loader, id2label_ner=ID2LABEL_EVNER, id2label_ee=ID2LABEL_EE, *, ee_average="micro"):
+    def evaluate_dataloader(self, dev_loader, id2label_ner=ID2LABEL_EVNER, id2label_ee=ID2LABEL_EE, ee_average="micro"):
         self.eval()
         device = next(self.parameters()).device
 
         # NER (seqeval expects list[list[str]])
-        ner_true_seqs, ner_pred_seqs = [], []
-        # Pointer metrics
-        et_preds, et_true = [], []
-        # EE F1 collections
-        ee_true_all, ee_pred_all = [], []
+        et_ner = {"truth":[], "pred":[]}
+        # ET Linker metrics
+        et_link = {"truth":[], "pred":[]}
+        # EE Temp Rels
+        ee_temprel = {"truth":[], "pred":[]}
         # Eval Loss
         loss = []
-        ner_loss, et_loss, ee_loss = 0, 0, 0
-        real_corr, real_none = 0, 0
-        tot = 0
+        geo_ner_loss, ev_ner_loss, et_loss, ee_loss = 0, 0, 0, 0
         with torch.no_grad():
             for batch in dev_loader:
                 # move to device
@@ -277,62 +274,62 @@ class TIEModel(nn.Module):
                     attention_mask=batch["attention_mask"],
                     ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"], e_sent_ids=batch["e_sent_ids"],
                     ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"], t_sent_ids=batch["t_sent_ids"],
-                    ner_gold_labels=batch["ner_labels"],
+                    ev_ner_gold_labels=batch["et_ner_labels"],
                     ev_ti_gold=batch["ev_ti_gold"],
                     ee_rel_gold=batch["ee_triples"],
                     ee_mask=batch["ee_mask"],
                 )
 
-                # -------- NER F1 (seqeval) --------
-                ner_logits   = out["ner_logits"]              # [B,L,C]
-                ner_pred_ids = ner_logits.argmax(-1)          # [B,L]
-                ner_gold_ids = batch["ner_labels"]            # [B,L]
-                B, L = ner_gold_ids.shape
+                # -------- EV NER F1 (seqeval) --------
+                et_ner_logits   = out["et_ner_logits"]              # [B,L,C]
+                et_ner_pred_ids = et_ner_logits.argmax(-1)          # [B,L]
+                et_ner_gold_ids = batch["et_ner_labels"]            # [B,L]
+                B, L = et_ner_gold_ids.shape
 
                 for i in range(B):
-                    ti = ner_gold_ids[i].tolist()
-                    pi = ner_pred_ids[i].tolist()
+                    ti = et_ner_gold_ids[i].tolist()
+                    pi = et_ner_pred_ids[i].tolist()
                     true_seq, pred_seq = [], []
                     for t_id, p_id in zip(ti, pi):
                         if t_id == -100:
                             continue
-                        true_seq.append(id2label_ner[t_id])
-                        pred_seq.append(id2label_ner[p_id])
-                    ner_true_seqs.append(true_seq)
-                    ner_pred_seqs.append(pred_seq)
+                        true_seq.append(ID2LABEL_EVNER[t_id])
+                        pred_seq.append(ID2LABEL_EVNER[p_id])
+                    et_ner['truth'].append(true_seq)
+                    et_ner['pred'].append(pred_seq)
 
-                # -------- Event→Time pointer@1 --------
+                # -------- Event→Time Link --------
                 et_pred = self.et.decode(out["et_logits"])                    # [B,Ne]
                 gold_et = batch["ev_ti_gold"]                # [B,Ne] (long)
 
                 valid = gold_et != -100
-                et_preds.extend(et_pred[valid].tolist())
-                et_true.extend(gold_et[valid].tolist())
+                et_link['pred'].extend(et_pred[valid].tolist())
+                et_link['truth'].extend(gold_et[valid].tolist())
 
-                # -------- EE F1 --------
+                # -------- EE TempRel --------
                 ee_logits = out["ee_logits"]                  # [B,M,C]
                 ee_pred   = ee_logits.argmax(-1)              # [B,M]
                 ee_gold   = batch["ee_triples"][:, :, 1]      # [B,M]
                 ee_mask   = batch["ee_mask"]                  # [B,M] (bool)
 
                 if ee_mask.any():
-                    ee_true_all.extend(ee_gold[ee_mask].tolist())
-                    ee_pred_all.extend(ee_pred[ee_mask].tolist())
+                    ee_temprel['truth'].extend(ee_gold[ee_mask].tolist())
+                    ee_temprel['pred'].extend(ee_pred[ee_mask].tolist())
 
                 loss.append(out["loss"].item())
-                ner_loss += out.get("ner_loss", 0).item()
+                ev_ner_loss += out.get("ev_ner_loss", 0).item()
                 et_loss += out.get("et_loss", 0).item()
                 ee_loss += out.get("ee_loss", 0).item()
 
         metrics = {}
-        metrics["ner_f1"]  = seqeval_f1(ner_true_seqs, ner_pred_seqs) if ner_true_seqs else 0.0
-        print(seqeval_cr(ner_true_seqs, ner_pred_seqs, digits=4))
-        metrics["et_f1"] = sk_f1(et_true, et_preds, average=ee_average)
-        print(sk_cr(et_true, et_preds, digits=4))
-        metrics["ee_f1"] = sk_f1(ee_true_all, ee_pred_all, average=ee_average)
-        print(sk_cr(ee_true_all, ee_pred_all, target_names=id2label_ee.values(), digits=4))
+        metrics["et_ner_f1"]  = seqeval_f1(et_ner['truth'], et_ner['pred'])
+        print(seqeval_cr(et_ner['truth'], et_ner['pred'], digits=4))
+        metrics["et_f1"] = sk_f1(et_link['truth'], et_link['pred'], average=ee_average)
+        print(sk_cr(et_link['truth'], et_link['pred'], digits=4))
+        metrics["ee_f1"] = sk_f1(ee_temprel['truth'], ee_temprel['pred'], average=ee_average)
+        print(sk_cr(ee_temprel['truth'], ee_temprel['pred'], target_names=id2label_ee.values(), digits=4))
         metrics["eval_loss"] = sum(loss) / len(loss)
-        metrics["ner_loss"] = ner_loss / len(loss)
+        metrics["ev_ner_loss"] = ev_ner_loss / len(loss)
         metrics["et_loss"] = et_loss / len(loss)
         metrics["ee_loss"] = ee_loss / len(loss)
         return metrics

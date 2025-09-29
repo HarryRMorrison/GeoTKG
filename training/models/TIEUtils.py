@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 import os
 import json
 from copy import deepcopy
-from training.models.globals import ID2LABEL_EVNER, ID2LABEL_EE, LABEL2ID_EVNER, LABEL2ID_EE
+from models.globals import ID2LABEL_EVNER, ID2LABEL_EE, LABEL2ID_EVNER, LABEL2ID_EE
 
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 

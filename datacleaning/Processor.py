@@ -1,9 +1,16 @@
 from Reader import TBDenseReader, TempEval3Reader, MAVENReader, OzRockReader, TweetsReader, WikiWarsReader
 from copy import deepcopy
 from sklearn.model_selection import train_test_split
+import json
 
 def get_dataset(reader):
-    data = reader.read()
+    with open("datacleaning\\test_set.json", "r") as f:
+        examples= [json.loads(line) for line in f][0]
+    blacklist = examples['blacklist']
+    if type(reader) in [TBDenseReader, TempEval3Reader]:
+        data = reader.read(blacklist=blacklist)
+    else:
+        data = reader.read()
     if type(reader) is MAVENReader:
         data.pop("test")
     for split in data:
@@ -121,10 +128,16 @@ def get_quintuples_test_data(data, y):
             defaults_y.append(y[i])
 
     values, counts = np.unique(y, return_counts=True)
-    props = {values[i]:{"current":0, "target":np.ceil(150*(counts[i]/len(y)))} for i in range(len(values))}
+    props = {values[i]:{"current":0, "target":np.ceil(600*(counts[i]/len(y)))} for i in range(len(values))}
     test_set = []
     new_data = []
     new_y = []
+    paired_list = list(zip(norms, norms_y))
+    import random
+    random.seed(42)
+    random.shuffle(paired_list)
+    norms, norms_y = zip(*paired_list)
+    norms, norms_y = list(norms), list(norms_y)
     for i, sample in enumerate(norms):
         if props[norms_y[i]]["current"] < props[norms_y[i]]["target"]:
             test_set.append(sample)
@@ -152,10 +165,10 @@ def combine_and_stratify(data):
                     all_data.append(sample)
                     y.append(class_out)
 
-    test_set, new_data, new_y = get_quintuples_test_data(all_data, y)
+    #test_set, new_data, new_y = get_quintuples_test_data(all_data, y)
 
-    X_train, X_val, y_train2, y_val = train_test_split(new_data, new_y, test_size=0.1, random_state=42, stratify=new_y, shuffle=True)
-    return {"train": X_train, "eval": X_val, "test": test_set}
+    X_train, X_val, y_train2, y_val = train_test_split(all_data, y, test_size=0.1, random_state=42, stratify=y, shuffle=True)
+    return {"train": X_train, "eval": X_val}#, "test": test_set}
 
 def obtain_tie_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = {}
@@ -202,23 +215,25 @@ def retrieve_norm_text(sample):
 def obtain_norm_data(path = "D:\\GeoTKG\\rawdata\\"):
     data = []
     types = []
-    for reader in [TweetsReader, WikiWarsReader]:
+    with open("datacleaning\\test_set.json", "r") as f:
+        examples= [json.loads(line) for line in f][0]
+    blacklist = examples['blacklist']
+    for reader in [WikiWarsReader]:
         ds = reader(path + reader.__name__.replace("Reader","")).read()
         for sample in ds:
             out, t_types = retrieve_norm_text(sample)
             data.extend(out)
             types.extend(t_types)
     for reader in [TempEval3Reader, TBDenseReader]:
-        ds = reader(path + reader.__name__.replace("Reader","")).read()
+        ds = reader(path + reader.__name__.replace("Reader","")).read(blacklist=blacklist)
         for split in ds:
             for sample in ds[split]:
                 out, t_types = retrieve_norm_text(sample)
                 data.extend(out)
                 types.extend(t_types)
 
-    X_train, X_test, y_train, y_test = train_test_split(data, types, test_size=0.1, random_state=42, stratify=types, shuffle=True)
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=42, stratify=y_train, shuffle=True)
-    save_data({"train": X_train, "eval": X_val, "test": X_test}, path = "D:\\GeoTKG\\cleandata\\normalise\\")
+    X_train, X_val, y_train, y_val = train_test_split(data, types, test_size=0.1, random_state=42, stratify=types, shuffle=True)
+    save_data({"train": X_train, "eval": X_val}, path = "D:\\GeoTKG\\cleandata\\normalise\\")
                 
     
 if __name__ == "__main__":

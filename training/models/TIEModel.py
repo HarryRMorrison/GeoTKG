@@ -95,10 +95,12 @@ class NERHead(nn.Module):
 # Cross-attention
 # ----------------------------
 class CrossAttention(nn.Module):
-    def __init__(self, d, heads=6, dropout=0.0):  # set dropout=0.0 for clean probs
+    def __init__(self, d, heads=6, dropout=0.0, none_token=True):  # set dropout=0.0 for clean probs
         super().__init__()
         self.mha = nn.MultiheadAttention(d, heads, batch_first=True, dropout=dropout)
-        self.none_token = nn.Parameter(torch.zeros(1, 1, d))
+        self.has_none = none_token
+        if none_token:
+            self.none_token = nn.Parameter(torch.zeros(1, 1, d))
         self.ln = nn.LayerNorm(d)
 
     def forward(self, Q, KV, key_padding_mask):
@@ -110,12 +112,16 @@ class CrossAttention(nn.Module):
         '''
         B, Nq, d = Q.shape
         _, Nkv, _ = KV.shape
-        none = self.none_token.expand(B, 1, d)                 # [B,1,d]
-        KV_aug = torch.cat([KV, none], dim=1)                     # [B, Nt+1, d]
+        if self.has_none:
+            none = self.none_token.expand(B, 1, d)                 # [B,1,d]
+            KV_aug = torch.cat([KV, none], dim=1)                     # [B, Nt+1, d]
 
-        # Applying None to key_padding_mask
-        kp_none = torch.zeros(B, 1, dtype=torch.bool, device=key_padding_mask.device)
-        key_padding_mask = torch.cat([~key_padding_mask, kp_none], dim=1)
+            # Applying None to key_padding_mask
+            kp_none = torch.zeros(B, 1, dtype=torch.bool, device=key_padding_mask.device)
+            key_padding_mask = torch.cat([~key_padding_mask, kp_none], dim=1)
+        else:
+            KV_aug = KV
+            key_padding_mask = ~key_padding_mask
 
         # Get output
         out, attn = self.mha(Q, KV_aug, KV_aug, key_padding_mask=key_padding_mask, need_weights=True, average_attn_weights=True)        
@@ -123,9 +129,9 @@ class CrossAttention(nn.Module):
         # out:  [B, Ne, d]  (refined events)
         # attn:[B, Ne, Nt] (avg across heads); with dropout=0, this sums to 1 → pointer probs
 
-        h_time_exp = attn @ KV_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
+        h_KV_exp = attn @ KV_aug           # [B, Ne, d] expected time embedding treating attn as P(t|e)
 
-        return {"h_KV_exp": h_time_exp, "Q_refined": out}
+        return {"h_KV_exp": h_KV_exp, "Q_refined": out}
 
 # ----------------------------
 # Event-Event Temporal Relation Head
@@ -136,18 +142,19 @@ class EEHead(nn.Module):
         self.drop = nn.Dropout(dropout)
         self.linear = nn.Linear(hidden_size, n_labels)
 
-    def forward(self, hE, hT_exp, pairs):
-        B, Ne, d = hE.shape
+    def forward(self, hE_exp, hT_exp, pairs):
+        B, Ne, d = hE_exp.shape
         M = pairs.size(1)
         e1 = pairs[:,:,0]  # [B,M]
         e2 = pairs[:,:,1]  # [B,M]
         # Gather
-        he1 = torch.gather(hE, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
-        he2 = torch.gather(hE, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
-        ht1 = torch.gather(hT_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))  # [B,M,d]
-        ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))  # [B,M,d]
+        he1 = torch.gather(hE_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
+        he2 = torch.gather(hE_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
+        ht1 = torch.gather(hT_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
+        ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
 
-        x = torch.cat([he1, he2, ht1, ht2, he1*he2, ht1*ht2], dim=-1) # [B,M, 6d]
+        # Build pair vector + logits
+        x = torch.cat([he1, he2, ht1, ht2, he1 * he2, (ht1 - ht2).abs()], dim=-1)  # [B,M,6d+2]
         logits = self.linear(self.drop(x))
         return logits
     
@@ -165,7 +172,7 @@ class ETHead(nn.Module):
     def _pair_concat(self, E, T):
         e = E.unsqueeze(2).expand(-1, -1, T.size(1), -1)
         t = T.unsqueeze(1).expand(-1, E.size(1), -1, -1)
-        return torch.cat([e, t], dim=-1) # [B, Ne, Nt, De+Dt]
+        return torch.cat([e, t, e*t, (e - t).abs()], dim=-1) # [B, Ne, Nt, De+Dt]
     
     @torch.no_grad()
     def decode(self, logits):
@@ -187,10 +194,10 @@ class TIEModel(nn.Module):
         d = self.enc.config.hidden_size
         self.ner = NERHead(d, num_ner)
         self.span_pool = MaxSpanPool
-        self.ev_to_ti_ca = CrossAttention(d=d, heads=6)
-        self.ti_to_ev_ca = CrossAttention(d=d, heads=6)
-        self.et = ETHead(d*2)
-        self.ee = EEHead(d, n_labels=ee_labels)
+        self.ev_to_ti_ca = CrossAttention(d=d, heads=6, none_token=True)
+        self.ti_to_ev_ca = CrossAttention(d=d, heads=6, none_token=False)
+        self.et = ETHead(d*4)
+        self.ee = EEHead(d*6, n_labels=ee_labels)
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
         self.loss_bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([22]))
 
@@ -226,8 +233,8 @@ class TIEModel(nn.Module):
         hT_e = e_to_t_ca_out["h_KV_exp"]
 
         # 4b) Cross-Attention (Time->Event)
-        e_to_t_ca_out = self.ti_to_ev_ca(hE, hT, key_padding_mask=ti_mask)
-        hT_ref = e_to_t_ca_out["Q_refined"]
+        t_to_e_ca_out = self.ti_to_ev_ca(hT, hE, key_padding_mask=ev_mask)
+        hT_ref = t_to_e_ca_out["Q_refined"]
 
         # 5a) Event Time Linking
         et_out = self.et(hT_ref, hE_ref)
@@ -251,7 +258,7 @@ class TIEModel(nn.Module):
         out["loss"] = ner_loss + et_loss + ee_loss
         return out
     
-    def evaluate_dataloader(self, dev_loader, id2label_ner=ID2LABEL_EVNER, id2label_ee=ID2LABEL_EE, ee_average="micro"):
+    def evaluate_dataloader(self, dev_loader, id2label_ner=ID2LABEL_EVNER, id2label_ee=ID2LABEL_EE, average="micro"):
         self.eval()
         device = next(self.parameters()).device
 
@@ -263,7 +270,7 @@ class TIEModel(nn.Module):
         ee_temprel = {"truth":[], "pred":[]}
         # Eval Loss
         loss = []
-        geo_ner_loss, ev_ner_loss, et_loss, ee_loss = 0, 0, 0, 0
+        ev_ner_loss, et_loss, ee_loss = 0, 0, 0
         with torch.no_grad():
             for batch in dev_loader:
                 # move to device
@@ -274,16 +281,16 @@ class TIEModel(nn.Module):
                     attention_mask=batch["attention_mask"],
                     ev_starts=batch["ev_starts"], ev_ends=batch["ev_ends"], ev_mask=batch["ev_mask"], e_sent_ids=batch["e_sent_ids"],
                     ti_starts=batch["ti_starts"], ti_ends=batch["ti_ends"], ti_mask=batch["ti_mask"], t_sent_ids=batch["t_sent_ids"],
-                    ev_ner_gold_labels=batch["et_ner_labels"],
+                    ner_gold_labels=batch["ner_labels"],
                     ev_ti_gold=batch["ev_ti_gold"],
                     ee_rel_gold=batch["ee_triples"],
                     ee_mask=batch["ee_mask"],
                 )
 
                 # -------- EV NER F1 (seqeval) --------
-                et_ner_logits   = out["et_ner_logits"]              # [B,L,C]
+                et_ner_logits   = out["ner_logits"]              # [B,L,C]
                 et_ner_pred_ids = et_ner_logits.argmax(-1)          # [B,L]
-                et_ner_gold_ids = batch["et_ner_labels"]            # [B,L]
+                et_ner_gold_ids = batch["ner_labels"]            # [B,L]
                 B, L = et_ner_gold_ids.shape
 
                 for i in range(B):
@@ -317,19 +324,19 @@ class TIEModel(nn.Module):
                     ee_temprel['pred'].extend(ee_pred[ee_mask].tolist())
 
                 loss.append(out["loss"].item())
-                ev_ner_loss += out.get("ev_ner_loss", 0).item()
+                ev_ner_loss += out.get("ner_loss", 0).item()
                 et_loss += out.get("et_loss", 0).item()
                 ee_loss += out.get("ee_loss", 0).item()
 
         metrics = {}
-        metrics["et_ner_f1"]  = seqeval_f1(et_ner['truth'], et_ner['pred'])
+        metrics["ner_f1"]  = seqeval_f1(et_ner['truth'], et_ner['pred'])
         print(seqeval_cr(et_ner['truth'], et_ner['pred'], digits=4))
-        metrics["et_f1"] = sk_f1(et_link['truth'], et_link['pred'], average=ee_average)
+        metrics["et_f1"] = sk_f1(et_link['truth'], et_link['pred'], average=average)
         print(sk_cr(et_link['truth'], et_link['pred'], digits=4))
-        metrics["ee_f1"] = sk_f1(ee_temprel['truth'], ee_temprel['pred'], average=ee_average)
+        metrics["ee_f1"] = sk_f1(ee_temprel['truth'], ee_temprel['pred'], average=average)
         print(sk_cr(ee_temprel['truth'], ee_temprel['pred'], target_names=id2label_ee.values(), digits=4))
         metrics["eval_loss"] = sum(loss) / len(loss)
-        metrics["ev_ner_loss"] = ev_ner_loss / len(loss)
+        metrics["ner_loss"] = ev_ner_loss / len(loss)
         metrics["et_loss"] = et_loss / len(loss)
         metrics["ee_loss"] = ee_loss / len(loss)
         return metrics
@@ -347,11 +354,16 @@ class TIEModel(nn.Module):
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d]
         hT = self.span_pool(H, ti_starts, ti_ends)
 
-        ca_out = self.ca(hE, hT, key_padding_mask=ti_mask, attn_mask = None)
-        hE_ref = ca_out["hE_refined"]
-        hT_e = ca_out["h_time_exp"]
+        # 4a) Cross-Attention (Event->Time)
+        e_to_t_ca_out = self.ev_to_ti_ca(hE, hT, key_padding_mask=ti_mask)
+        hE_ref = e_to_t_ca_out["Q_refined"]
+        hT_e = e_to_t_ca_out["h_KV_exp"]
 
-        et_out = self.et(hT, hE_ref)
+        # 4b) Cross-Attention (Time->Event)
+        t_to_e_ca_out = self.ti_to_ev_ca(hT, hE, key_padding_mask=ev_mask)
+        hT_ref = t_to_e_ca_out["Q_refined"]
+
+        et_out = self.et(hT_ref, hE_ref)
         et_preds = self.et.decode(et_out['logits'])
 
         ee_pairs = []
@@ -392,51 +404,22 @@ class TIEModel(nn.Module):
 
 
 if __name__=="__main__":
-    model = TIEModel()
-    load = torch.load("D:\\GeoTKG\\results\\tie_model\\tie_model_epoch15.pt")
-    model.load_state_dict(load['model_state_dict'])
+    model = CrossAttention(3*4, 4)
 
-    # batch_text = ["The stock market crashed on Sunday, which made many investors sell their stocks.",
-    #               "The conflict started in 2012 following a missle strike ordered a month prior."]
-    # tokens, ev_starts, ev_ends, ti_starts, ti_ends, et_preds, ee_triples, ee_mask = model.predict(text_batch=batch_text)
-    # print(et_preds)
-    # for bi in [0,1]:
-    #     print(f"--------------- TEXT {bi+1} ---------------")
-    #     events = []
-    #     times = []
-    #     words = TOKENIZER.convert_ids_to_tokens(tokens['input_ids'][bi])
+    torch.manual_seed(42)
 
-    #     for i, es in enumerate(ev_starts[bi]):
-    #         try:
-    #             events.append(words[es:ev_ends[bi][i]][0].strip("Ġ"))
-    #         except IndexError:
-    #             continue
-    #     print("EVENTS: ", events)
+    # 3D embeddings
+    hE = torch.randn(4, 5, 3)   # [B=4, Ne=5, d=3]
+    hT = torch.randn(4, 3, 3)   # [B=4, Nt=3, d=3]
+    kpm = torch.full((4,3), True, dtype=torch.bool)
+    print(kpm)
 
-    #     for i, ts in enumerate(ti_starts[bi]):
-    #         times.append(words[ts:ti_ends[bi][i]][0].strip("Ġ"))
-    #     print("TIMES: ", times)
+    out = model(hE, hT, key_padding_mask=kpm)
 
-    #     for i, trip in enumerate(ee_triples[bi][ee_mask[bi]]):
-    #         print(f"<{events[trip[0].item()]} --> {ID2LABEL_EE[trip[2].item()]} --> {events[trip[1].item()]}>")
+    print(hE.shape)
+    print(hT.shape)
+    print(out)
 
-    #     for i, et in enumerate(et_preds[bi]):
-    #         if et:
-    #             print(f"<{events[i]}, {times[i]}>")
-    from training.models.TIEUtils import TemporalDataset, collator
-    from torch.utils.data import DataLoader
-    label2id_ner = LABEL2ID_EVNER
-    id2label_ner = ID2LABEL_EVNER
-    label2id_ee = LABEL2ID_EE
-    id2label_ee = ID2LABEL_EE
-    cleandata_path = "D:\\GeoTKG\\cleandata\\tie\\"
-    def collate_fn(examples):
-        return collator(examples, label2id_ner=label2id_ner, label2id_ee=label2id_ee)
-    eval = TemporalDataset(cleandata_path + "eval.json")
-    eval_loader = DataLoader(eval, batch_size=2, shuffle=False, collate_fn=collate_fn)
-    # for i, b in enumerate(eval_loader):
-    #     if i != 0:
-    #         break
-    #     else:
-    #         print(b)
-    print(model.evaluate_dataloader(eval_loader, id2label_ner=id2label_ner, id2label_ee=id2label_ee))
+
+    
+    

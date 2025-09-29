@@ -437,9 +437,11 @@ class TempEval3Reader(TimeMLReader):
     def __init__(self, path):
         super().__init__(path)
 
-    def read(self, dataset_name="TempEval3"):
+    def read(self, dataset_name="TempEval3", blacklist=[]):
         data, out = [], {}
-        blacklist = [fp.split('/')[-1] for fp in TBDenseReader(os.path.join(RAWDATA_PATH, "TBDense")).file_paths_to_read]
+        if dataset_name=="TempEval3":
+            blacklist += [fp.split('/')[-1] for fp in TBDenseReader(os.path.join(RAWDATA_PATH, "TBDense")).file_paths_to_read]
+        print(len(blacklist))
         split_num = 4
         current_folder = self.file_paths_to_read[0].split('\\')[split_num]
         num_f = len(self.file_paths_to_read)
@@ -463,8 +465,8 @@ class TBDenseReader(TempEval3Reader):
     def __init__(self, path):
         super().__init__(path)
     
-    def read(self):
-        return super().read(dataset_name="TBDense")
+    def read(self, blacklist=[]):
+        return super().read(dataset_name="TBDense", blacklist=blacklist)
         
 class TweetsReader(TimeMLReader):
     def __init__(self, path):

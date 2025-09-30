@@ -19,30 +19,24 @@ class TimexNormModel():
         self.model = model
         self.model.eval()
 
-    def collator(self, text, times_locs, dct, roberta_tok):
-        input_ids = roberta_tok(text, add_special_tokens=True, truncation=True, return_tensors="pt")['input_ids'][0]
-        inputs = []
-        for s, e, ty in times_locs:
-            out_text = roberta_tok.decode(input_ids[max(0, s-100):min(len(input_ids), e+100)], skip_special_tokens=True)
-            out_text = out_text
-            input_text = f'DCT: {dct} \nTYPE: {ty} \nTEXT: {out_text} \nSPAN: \"{roberta_tok.decode(input_ids[s:e], skip_special_tokens=True)[1:]}\"'
-            inputs.append(input_text)
+    def collator(self, inputs):
         enc = self.tokenizer(inputs, padding=True, truncation=True, return_tensors="pt")
         return {"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"]}
 
-    def predict(self, text, time_locs, dct, roberta_tokenizer):
-        inputs = self.collator(text, time_locs, dct, roberta_tokenizer)
-        gen_ids = self.model.generate(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            max_new_tokens=64,
-            num_beams=6,
-            early_stopping=True
-        )
-        decoded_preds = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
-        print(decoded_preds)
-        time_decode = [TimexNormModel.time_decode(time, dct) for time in decoded_preds]
-        return time_decode
+    def predict(self, raw_inputs, dcts):
+        time_decodings = []
+        for raw_input, dct in zip(raw_inputs, dcts):
+            inputs = self.collator(raw_input)
+            gen_ids = self.model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=64,
+                num_beams=6,
+                early_stopping=True
+            )
+            decoded_preds = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
+            time_decodings.append([TimexNormModel.time_decode(gen_time, dct) for gen_time in decoded_preds])
+        return time_decodings
 
     @staticmethod
     def gentext_to_iso8601(gentext: str):
@@ -61,17 +55,11 @@ class TimexNormModel():
                 continue
             return None
     
-    def time_decode(gentext: str, dct: str):
+    def time_decode(gentext: str, dct):
         if gentext[-3:] == "REF":
             gentext = dct
         parsed = TimexNormModel.gentext_to_iso8601(gentext)
-        if type(parsed) == isodate.duration.Duration:
-            parsed = TimexNormModel.gentext_to_iso8601(dct) + parsed
         return parsed
-    
-    def to_datetime_abs(time, dct):
-        # if type(time) == 
-        return
 
         
 

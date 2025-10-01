@@ -7,3 +7,5 @@
 /results/TimeNormBart
 /results/geo_model
 training/results
+__pycache__/
+results/

@@ -67,7 +67,9 @@ INVERSE = {
     # extend as needed
 }
 
-def get_ee_temprels(temprel_list, exhaustive=False):
+def get_ee_temprels(temprel_list, exhaustive=False, only_flipped=False):
+    if exhaustive and only_flipped:
+        raise TypeError("exhaustive and only flipped and mutually exclusive.")
     all_pairs = []
     for triple in temprel_list:
         try:
@@ -76,7 +78,12 @@ def get_ee_temprels(temprel_list, exhaustive=False):
             e1, rel, e2 = triple[0], triple[1], triple[2]
 
         all_pairs.append([e1, rel, e2])
-    if exhaustive:
+    if only_flipped:
+        for (e1, rel, e2) in all_pairs:
+            c = all_pairs.count([e2, INVERSE[rel], e1])
+            if c == 0:
+                all_pairs.append([e2, INVERSE[rel], e1])
+    elif exhaustive:
         for (e1, rel, e2) in all_pairs:
             c = all_pairs.count([e2, INVERSE[rel], e1])
             if c == 0:
@@ -231,6 +238,6 @@ def geo_eval_formating(example):
             while i < len(example["bio_tags"]) and example["bio_tags"][i] == "I" + example["bio_tags"][i][1:]:
                 text += example["tokens"][i] + " "
                 i += 1
-            instances.append({"type": tag, "text":text})
+            instances.append({"type": tag, "text":text.strip()})
         i += 1
     return instances

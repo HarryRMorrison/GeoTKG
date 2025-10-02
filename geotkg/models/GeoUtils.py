@@ -63,14 +63,22 @@ def collator(examples):
 
     # ---------- 3) Align BIO tags to subwords ----------
     ner_labels = torch.full((B, L), -100, dtype=torch.long)
+
+
     for bi in range(B):
-        wid_prev = None
+        prev_wid = None
         for si, wid in enumerate(word_ids_list[bi]):
             if wid is None:
                 continue
-            if wid != wid_prev:  # first subword
-                tag = flat_tags[bi][wid]
-                ner_labels[bi, si] = LABEL2ID_GEONER.get(tag, LABEL2ID_GEONER["O"])
-            wid_prev = wid
+            tag = flat_tags[bi][wid]
+            if wid == prev_wid and tag!="O":
+                tag = f"I-{tag[2:]}"
+            ner_labels[bi, si] = LABEL2ID_GEONER[tag]
+            prev_wid = wid
     
     return {"input_ids": input_ids, "attention_mask": attention_mask, "ner_labels": ner_labels}
+
+if __name__=="__main__":
+    data = [{'tokens': ['The', 'geology', 'of', 'the', 'hole', 'was', 'dominated', 'by', 'felsic', 'schists', 'and', 'granites', '.'], 'bio_tags': ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B-ROCK', 'I-ROCK', 'O', 'B-ROCK', 'O']}, {'tokens': ['The', 'mineralisation', 'was', 'characterised', 'by', 'traces', 'of', 'disseminated', 'pyrite', 'with', 'zones', 'of', 'trace', 'pyrrhotite', 'and', 'chalcopyrite', 'in', 'felsic', 'schist', '.'], 'bio_tags': ['O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'B-MINERAL', 'O', 'O', 'O', 'O', 'B-MINERAL', 'O', 'B-MINERAL', 'O', 'B-ROCK', 'I-ROCK', 'O']}]
+
+    print(collator(data))

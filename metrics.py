@@ -90,7 +90,7 @@ def sample_ner_compare(truths, preds, geo_ner=False):
         for pred in preds_copy:
             if instance['text'] == pred[0]:
                 text_match = "strict"
-                type_match = instance['type'] == pred[1]
+                type_match = instance['type'] == pred[-1]
                 preds_copy.remove(pred)
                 strict_results.append((text_match, type_match, instance['type']))
                 break
@@ -107,7 +107,7 @@ def sample_ner_compare(truths, preds, geo_ner=False):
         for pred in preds_copy:
             if instance['text'] in pred[0] or pred[0] in instance['text']:
                 text_match = "relaxed"
-                type_match = instance['type'] == pred[1]
+                type_match = instance['type'] == pred[-1]
                 preds_copy.remove(pred)
                 relaxed_results.append((text_match, type_match, instance['type']))
                 break
@@ -146,7 +146,7 @@ def sample_quintuple_compare(truths, preds):
 
 def sample_triple_compare(truths, preds):
     preds_copy = deepcopy(preds)
-    preds_copy = get_ee_temprels(preds_copy, exhaustive=True)
+    preds_copy = get_ee_temprels(preds_copy, only_flipped=True)
     results = []
     for truth in truths:
         matched = False

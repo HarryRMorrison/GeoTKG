@@ -1,8 +1,7 @@
-from SRL import SRL
+from DependencyParsing import DependencyParser
 from geotkg.models.TIEModel import TIEModel
 from geotkg.models.GeoEntityModel import GeoEntityModel
 from geotkg.models.TimexNormModel import TimexNormModel
-from CorefResolver import CorefResolver
 import torch
 import numpy as np
 from transformers import AutoTokenizer
@@ -12,6 +11,7 @@ from datetime import timedelta, datetime, date
 from isodate.duration import Duration
 from geotkg.models.globals import ID2LABEL_EE
 import re
+from copy import deepcopy
 
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", message=".*resume_download.*", category=FutureWarning)
@@ -24,10 +24,11 @@ TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 class GeoTKGPipeline:
     def __init__(self):
-        #self.GeoNER = GeoEntityModel()
-        #load = torch.load("results\\geo_model\\geo_model_test.pt")
-        #self.GeoNER.load_state_dict(load['model_state_dict'])
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        self.GeoNER = GeoEntityModel(base="roberta-base").to(device=self.device)
+        load = torch.load("geotkg\\results\\geo_model\\large_geo_epoch15.pt")
+        self.GeoNER.load_state_dict(load['model_state_dict'])
 
         self.TIEModel = TIEModel().to(device=self.device)
         load = torch.load("geotkg\\results\\tie_model\\tie_model_epoch20.pt")
@@ -35,37 +36,53 @@ class GeoTKGPipeline:
 
         self.NormModel = TimexNormModel("geotkg\\results\\norm_model\\time_norm_epoch15.pt")
 
-        #self.corefresolver = CorefResolver()
-        #self.slr = SRL()
-        #self.kgconstructor = KGConstructor()
+        self.depparse = DependencyParser()
 
-    def pred(self, batch_text, DCTs, return_ner_results=False):
+    def pred(self, batch_text, DCTs, return_ner_results=False, only_tie=True):
         
-        #batched_resolved_text = [self.corefresolver(text) for text in batch_unresolved_text]
         dcts = [TimexNormModel.gentext_to_iso8601(doctime) for doctime in DCTs]
 
         # Temporal Information Extraction
-        enc, events, times, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batch_text)
+        enc, events, timexs, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batch_text)
 
         word_maps = self.get_word_mappings(enc)
-        event_spans = self.get_spans(word_maps, events)
-        time_spans_and_locs = self.get_spans(word_maps, times, return_token_slices=True)
+        event_spans_and_locs = self.get_spans(word_maps, events)
+        timex_spans_and_locs = self.get_spans(word_maps, timexs)
 
-        norm_inputs = self.get_bart_normalisation_input(dcts, enc['input_ids'], time_spans_and_locs)            
+        norm_inputs = self.get_bart_normalisation_input(dcts, enc['input_ids'], timex_spans_and_locs)            
         normalised_times = self.NormModel.predict(norm_inputs, dcts)
 
-        quintuples = self.form_quintuples(event_spans, et_preds, normalised_times, dcts)
-        triples = self.form_triples(event_spans, ee_triples, ee_mask)
-        
-        if return_ner_results:
-            time_spans = [[[span, ty] for span, (s, e, ty) in times] for times in self.get_spans(word_maps, times, return_token_slices=True)]
-            event_spans = [[[span, ty] for span, (s, e, ty) in events] for events in self.get_spans(word_maps, events, return_token_slices=True)]
-            output = [{"quintuples":quins, "triples":trips, 'times':btimes, 'events':bevents} for (quins, trips, btimes, bevents) in zip(quintuples, triples, time_spans, event_spans)]
-        else:
-            output = [{"quintuples":quins, "triples":trips} for (quins, trips) in zip(quintuples, triples)]
+        triples = self.form_triples(event_spans_and_locs, ee_triples, ee_mask)
 
+        if only_tie:
+            quintuples = self.form_tie_quintuples(event_spans, et_preds, normalised_times, dcts)
+            
+            if return_ner_results:
+                timex_spans = [[[span, s, e, ty] for span, (s, e, ty) in zip(**timexs)] for timexs in timex_spans_and_locs]
+                event_spans = [[[span, s, e, ty] for span, (s, e, ty) in zip(**events)] for events in event_spans_and_locs]
+                output = [{"quintuples":quins, "triples":trips, 'times':btimes, 'events':bevents} for (quins, trips, btimes, bevents) in zip(quintuples, triples, timex_spans, event_spans)]
+            else:
+                output = [{"quintuples":quins, "triples":trips} for (quins, trips) in zip(quintuples, triples)]
+        else:
+            # Geo Entity Extraction
+            geo_times, geo_entities = self.GeoNER.predict(batch_text)
+            event_spans_and_locs = self.get_spans(word_maps, events)
+            events_copy = deepcopy(event_spans_and_locs)
+            geotime_spans_and_locs = self.get_spans(word_maps, geo_times)
+            geoent_spans_and_locs = self.get_spans(word_maps, geo_entities)
+
+            batch_quintuples = []
+            batch_event_retention = []
+            for bi in range(len(batch_text)):
+                stripped_tokens = [TOKENIZER.decode(id_tok, skip_special_tokens=True).strip() for id_tok in enc['input_ids'][bi]]
+                dep_out, retention = self.depparse(stripped_tokens, word_maps[1][bi], geoent_spans_and_locs[bi], geotime_spans_and_locs[bi], event_spans_and_locs[bi])
+                batch_quintuples.append(dep_out)
+                batch_event_retention.append(retention)
+            quintuples, timescale_ents = self.form_quintuples(events_copy, et_preds, normalised_times, batch_quintuples, dcts, batch_event_retention)
+
+            output = [{"quintuples":quins, "triples":trips, "timescales":timescale_ent} for (quins, trips, timescale_ent) in zip(quintuples, triples, timescale_ents)]
         return output
-    
+        
     def get_word_mappings(self, enc):
         input_ids = enc["input_ids"]
         B, L = input_ids.shape
@@ -83,9 +100,8 @@ class GeoTKGPipeline:
             word_maps.append(first_last)
         return (word_maps, word_ids_list, input_ids)
     
-    def get_spans(self, word_maps, bio_ranges, return_token_slices = False):
+    def get_spans(self, word_maps, bio_ranges):
         word_maps, word_ids_list, input_ids = word_maps
-        spans = []
         locations = []
         for bi, first_last in enumerate(word_maps):
             wids = word_ids_list[bi]
@@ -108,16 +124,12 @@ class GeoTKGPipeline:
                         start = first_last[s_word][0]
                         end   = first_last[e_word][1]
                 token_slices.append(ids[start:end+1].tolist())
-                new_locations.append((start,end+1, _t))
+                new_locations.append([start,end+1, _t[2:]])
             decoded = TOKENIZER.batch_decode(token_slices, skip_special_tokens=True, clean_up_tokenization_spaces=True)
             sample_spans = [re.sub(r"[.!?,<>\[\]}{;:\"']", "", raw_span.strip()) for raw_span in decoded]
-            spans.append(sample_spans)
             locations.append(zip(sample_spans, new_locations))
 
-        if return_token_slices:
-            return locations
-        else:
-            return spans
+        return locations
     
     def get_bart_normalisation_input(self, dcts, input_ids, time_spans):
         inputs = []
@@ -168,7 +180,7 @@ class GeoTKGPipeline:
             e_time = None
         return s_time, e_time
     
-    def form_quintuples(self, batch_events, batch_event_times, batch_normalised_times, dcts):
+    def form_tie_quintuples(self, batch_events, batch_event_times, batch_normalised_times, dcts):
         quintuples = []
         for events, event_times, norm_times, dct in zip(batch_events, batch_event_times, batch_normalised_times, dcts):
             batch_quintuples = []
@@ -187,44 +199,80 @@ class GeoTKGPipeline:
             quintuples.append(batch_quintuples)
         return quintuples
     
+    def form_quintuples(self, batch_events, batch_event_times, batch_normalised_times, batch_so, dcts, batch_event_retention):
+        quintuples = []
+        timescale_ents = []
+        got_so = []
+        for events, event_times, norm_times, so, dct, retained in zip(batch_events, batch_event_times, batch_normalised_times, batch_so, dcts, batch_event_retention): 
+            batch_quintuples = []
+            bacth_timscale_ents = []
+            events = list(events)
+            for (span,(s,e,ty)), et_list, so_index in zip(events, event_times, retained):
+                if span == '' or so_index==-100:
+                    continue
+                got_so.append(so)
+                event_time = [norm_times[i] for i, binary in enumerate(et_list) if binary.item()==1]
+                s_time, e_time = self.get_start_end_times(event_time, dct)
+                subject = so[so_index]['subject']
+                object = so[so_index]['object']
+
+                if subject is not None:
+                    ev_subs = []
+                    for entity in subject:
+                        if entity['timescale']!=[]:
+                            for timescale in entity['timescale']:
+                                bacth_timscale_ents.append([entity['text'], timescale['norm_min'], timescale['norm_max']])
+                        ev_subs.append(entity["text"])
+
+                if object is not None:
+                    ev_objs = []
+                    for entity in object:
+                        if entity['timescale']!=[]:
+                            for timescale in entity['timescale']:
+                                bacth_timscale_ents.append([entity['text'], timescale['norm_min'], timescale['norm_max']])
+                        ev_objs.append(entity["text"])
+
+                batch_quintuples.append({
+                    'subject':ev_subs if subject is not None else None,
+                    'event':span,
+                    'object':ev_objs if object is not None else None,
+                    's_time':s_time,
+                    'e_time':e_time
+                })
+            quintuples.append(batch_quintuples)
+            timescale_ents.append(bacth_timscale_ents)
+        return quintuples, timescale_ents
+                
     def form_triples(self, batch_events, batch_temprels, ee_mask):
         triples = []
-        for events, ee_temprels, mask in zip(batch_events, batch_temprels, ee_mask):
+        for bi, (ee_temprels, mask) in enumerate(zip(batch_temprels, ee_mask)):
             batch_triples = []
+            events = list(batch_events[bi])
             for e1, e2, rel in ee_temprels[mask]:
                 e1, e2, rel = e1.item(), e2.item(), rel.item()
-                if events[e1] == '' or events[e2] == '':
+                if events[e1][0] == '' or events[e2][0] == '':
                     continue
-                batch_triples.append((events[e1], ID2LABEL_EE[rel], events[e2]))
+                batch_triples.append((events[e1][0], ID2LABEL_EE[rel], events[e2][0]))
             triples.append(batch_triples)
         return triples
 
+    def put_into_neo4j_graph(quintuples, triples, timescales):
+
+        return
 if __name__=="__main__":
-    # model = GeoTKGPipeline()
-    # text = "The head of the UN nuclear watchdog agency Mohamed ElBaradei Saturday received the 2005 Nobel Peace Prize and called for a world free of atomic weapons , saying   existing nuclear states should lead   by example . \"If we hope   to escape   self - destruction , then nuclear weapons should have   no place in our collective conscience , and no role in our security , \" ElBaradei said   in his acceptance speech   at a ceremony   in Oslo 's City Hall . \"We must ensure , absolutely , that no more countries acquire   nuclear weapons : that nuclear weapon states take   concrete steps towards nuclear disarmament ; and we must put   in place a security system that does not rely   on nuclear deterrence , \" he added .ElBaradei and the International Atomic Energy Agency ( IAEA ) , represented   by the chairman of its board of governors , Yukiya Amano , were jointly honored   on Saturday   for \" their efforts to prevent   nuclear energy from being used   for military purposes\" . They received   their distinction from the chairman of the Nobel Committee Ole Mjoes 60 years   after the United States dropped   two atomic bombs on Hiroshima and Nagasaki in Japan on August 6 and 9 , 1945 , the world 's only nuclear attacks .\"At a time when the threat of nuclear arms is again increasing , the Norwegian Nobel Committee wishes   to underline   that this threat must be met   through the broadest possible international cooperation said .In his acceptance speech , ElBaradei emphasized   that the threat of nuclear proliferation was closely linked   to inequalities in the world . \"In regions where conflicts have been left   to fester   for decades , countries continue   to look   for ways to offset   their insecurities or project   their power ... They may be tempted   to seek   their own weapons of mass destruction , like others who have preceded   them , \" he said . Fifteen years   after the Cold War came   to an end , the IAEA chief lamented   that \" we may have torn   down the walls between East and West , but we have yet to build   the bridges between North and South , the rich and the poor . \"To rid   the world of the threat of nuclear weapons , \" a good start would be if the nuclear weapons states reduced   the strategic role given to these weapons , \" he said . \" Today , eight or nine countries possess   nuclear weapons . Today we still have   27,000 warheads in existence . To me , this is 27,000 too many , \" he added .The IAEA and its chief have most recently been instrumental   in thorny nuclear negotiations   with Iran , threatening   to take   the country before the UN Security Council for violating   nuclear non - proliferation rules . Iran has insisted   that its nuclear program is merely designed   to meet   domestic energy needs , while the United States , Israel and others have charged   it is a cover for a programme   to develop   an atom bomb . On Saturday , ElBaradei said   that to avoid   such ambiguity , he planned   to set   up a \" reserve fuel bank \" under IAEA control . \"This assurance of supply will remove   the incentive , and the justification , for each country to develop   its own fuel cycle , \" he said . Ending   his speech   on an upbeat note , ElBaradei asked   the audience to \" imagine   what would happen   if the nations of the world spent   as much on development as on the machines of war . \"Imagine that the only nuclear weapons remaining are the relics in our museums . Imagine   the legacy we could leave   to our children . Imagine that such a world is actually within our grasp , \" he concluded .The agency and its director received   their award , consisting split   between them , in a brightly decorated City Hall , decked ceremony   on Saturday , the anniversary of the death   of prize founder Alfred Nobel , the winners of this year 's literature , medicine , physics , chemistry and economics prizes received   their awards from King Carl XVI Gustaf in Stockholm 's Concert Hall . That ceremony   was to be followed   by a gala banquet at Stockholm 's City Hall for 1,300 guests ."
-    # test = "Back to the RBA's statement and taking a look at the all-important final paragraphs, which indicate it's taking a wait-and-see approach as the three interest rate cuts so far this year filter through the economy."
-    # dct = "2005-12-10"
-    # quins, trips = model.pred([text, test], [dct, "2025-09-09"])
-
-    # for q in quins:
-    #     print(q)
-
-    # for t in trips:
-    #     print(t)
-
-    import json
-    from Pipeline import GeoTKGPipeline
-
-    with open("D:\\GeoTKG\\cleandata\\tie\\test.json", "r") as f:
-        examples=[json.loads(line) for line in f]
-    preds = []
     model = GeoTKGPipeline()
-    for i in range(0, len(examples), 8):
-        samples = examples[i:i+8]
-        dcts = [inst['value'] for sample in samples for inst in sample['instances'] if inst['type'] != "EVENT" and inst['id'] == 0]
-        text = [" ".join([wrd for sent in sample['text'] for wrd in sent]) for sample in samples]
-        output = model.pred(text, dcts)
-        preds.extend(output)
-        print(i)
+    test = "During the Late Ordovician (ca. 455 Ma), the Karinya Batholith intruded the coastal belt and was emplaced into greenschist-grade sediments of the Narrin Group. It triggered rapid uplift along the Murran Fault, which was later reactivated in the Early Miocene (~21 Ma) as basaltic volcanism resumed. The shield volcano that formed then built a ~1.2-km pile; it collapsed soon after, and its debris was shed into the Warluk Basin, where it was reworked by shallow marine currents. In the eastern sector, rhyolitic domes erupted at 24 Ma and again at 19 Ma; these produced thick ignimbrites that blanket older shoreface sandstones. One dome at Mt. Wintara fed pyroclastic flows that overran the paleovalley; they later weathered to a red saprolite. Clast counts from the basin fill include a 1000 Ma granite xenolith, although it is clearly exotic. This package was unconformably overlain by fossiliferous limestones, and they were fractured during a brief uplift phase. Afterwards, subsidence resumed and the basin deepened, but it remained intermittently open to the shelf."
+    dct = "2025-06-10"
+    output = model.pred([test], [dct], only_tie=False)[0]
+
+    for quin in output['quintuples']:
+        print(quin)
+
+    for trip in output['triples']:
+        print(trip)
+
+    for scale in output['timescales']:
+        print(scale)
+
     
 

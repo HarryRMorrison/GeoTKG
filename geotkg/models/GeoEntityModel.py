@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
-from models.globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
+from geotkg.models.globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
 from transformers import AutoTokenizer
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-large", add_prefix_space=True)
     
@@ -104,10 +104,14 @@ class GeoEntityModel(nn.Module):
 
         return times, entities
 
-    def predict(self, text_batch):
+    def predict(self, text_batch, return_tokens=False):
         self.eval()
-        
+        model_device = next(self.parameters()).device
         tokens = TOKENIZER(text_batch, add_special_tokens=True, padding=True, truncation=True, return_tensors="pt")
+        ids = tokens['input_ids'].to(model_device)
+        attention_mask = tokens['attention_mask'].to(model_device)
         with torch.no_grad():
-            out = self.forward(input_ids=tokens['input_ids'], attention_mask=tokens['attention_mask'], labels=None)
+            out = self.forward(input_ids=ids, attention_mask=attention_mask, labels=None)
+        if return_tokens:
+            return self.decode(out['logits']), tokens
         return self.decode(out['logits'])

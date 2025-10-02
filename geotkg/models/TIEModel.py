@@ -3,7 +3,7 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
 from sklearn.metrics import f1_score as sk_f1, classification_report as sk_cr
-from models.globals import EVENT_BI, TIMEX_BI, LABEL2ID_EVNER, LABEL2ID_EE, ID2LABEL_EVNER, ID2LABEL_EE
+from geotkg.models.globals import EVENT_BI, TIMEX_BI, LABEL2ID_EVNER, LABEL2ID_EE, ID2LABEL_EVNER, ID2LABEL_EE
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 # --------------------------------
@@ -342,7 +342,7 @@ class TIEModel(nn.Module):
         metrics["et_loss"] = et_loss / len(loss)
         metrics["ee_loss"] = ee_loss / len(loss)
         if return_ner_tags:
-            return metrics, all_ner_pred_ids
+            return metrics, et_ner, et_link, ee_temprel 
         return metrics
     
     def predict(self, text_batch):
@@ -396,7 +396,7 @@ class TIEModel(nn.Module):
                 if start == -1:
                     continue
                 else:
-                    temp.append((start.item(), end.item(), "EVENT"))
+                    temp.append((start.item(), end.item(), "B-EVENT"))
             events.append(temp)
         times = []
         for i, time_batch in enumerate(ti_starts):

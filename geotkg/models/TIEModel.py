@@ -3,7 +3,7 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
 from sklearn.metrics import f1_score as sk_f1, classification_report as sk_cr
-from geotkg.models.globals import EVENT_BI, TIMEX_BI, LABEL2ID_EVNER, LABEL2ID_EE, ID2LABEL_EVNER, ID2LABEL_EE
+from models.globals import EVENT_BI, TIMEX_BI, LABEL2ID_EVNER, LABEL2ID_EE, ID2LABEL_EVNER, ID2LABEL_EE
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 # --------------------------------

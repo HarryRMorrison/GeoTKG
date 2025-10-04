@@ -3,13 +3,17 @@ import torch.nn as nn
 from models.TIEModel import TIEModel
 from models.GeoEntityModel import GeoEntityModel
 from models.TimexNormUtils import compute_metrics as comput_norm_metrics
-from transformers import AutoModelForSeq2SeqLM
+from transformers import AutoModelForSeq2SeqLM, BartTokenizer
 
 class BartSeq2SeqFineTuner(nn.Module):
     def __init__(self, model_name: str = "facebook/bart-base", label_smoothing: float = 0.0):
         super().__init__()
+        tokenizer = BartTokenizer.from_pretrained("facebook/bart-large")
+        tokenizer.add_special_tokens({"additional_special_tokens": ["DCT:", "TYPE:", "TEXT:", "SPAN:"]})
+        self.tokenizer = tokenizer
         self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
         self.label_smoothing = label_smoothing  # passed to loss via config if desired
+        self.model.resize_token_embeddings(len(tokenizer))
 
     def forward(
         self,
@@ -35,9 +39,9 @@ class BartSeq2SeqFineTuner(nn.Module):
         return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
 
 class GeoTKG(nn.Module):
-    def __init__(self):
+    def __init__(self, use_ca=True):
         super().__init__()
-        self.tie_model = TIEModel()
+        self.tie_model = TIEModel(use_ca=use_ca)
         self.geo_model = GeoEntityModel()
         self.norm_model = BartSeq2SeqFineTuner()
 

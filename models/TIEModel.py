@@ -143,7 +143,7 @@ class EEHead(nn.Module):
         self.drop = nn.Dropout(dropout)
         self.linear = nn.Linear(hidden_size, n_labels)
 
-    def forward(self, hE_exp, hT_exp, pairs):
+    def forward(self, hE_exp, hT_exp, pairs, uses_ca=True):
         B, Ne, d = hE_exp.shape
         M = pairs.size(1)
         e1 = pairs[:,:,0]  # [B,M]
@@ -151,11 +151,14 @@ class EEHead(nn.Module):
         # Gather
         he1 = torch.gather(hE_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
         he2 = torch.gather(hE_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
-        ht1 = torch.gather(hT_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
-        ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
+        if uses_ca:
+            ht1 = torch.gather(hT_exp, 1, e1.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
+            ht2 = torch.gather(hT_exp, 1, e2.unsqueeze(-1).expand(-1,-1,d))      # [B,M,d]
 
-        # Build pair vector + logits
-        x = torch.cat([he1, he2, ht1, ht2, he1 * he2, (ht1 - ht2).abs()], dim=-1)  # [B,M,6d+2]
+            # Build pair vector + logits
+            x = torch.cat([he1, he2, ht1, ht2, he1 * he2, (ht1 - ht2).abs()], dim=-1)  # [B,M,6d+2]
+        else:
+            x = torch.cat([he1, he2])
         logits = self.linear(self.drop(x))
         return logits
     
@@ -189,18 +192,24 @@ class TIEModel(nn.Module):
     def __init__(self, base="roberta-base",
                  num_ner=len(LABEL2ID_EVNER),
                  ee_labels=len(LABEL2ID_EE),
-                 heads=6):
+                 heads=6,
+                 use_ca=True):
         super().__init__()
         self.enc = AutoModel.from_pretrained(base)
         d = self.enc.config.hidden_size
         self.ner = NERHead(d, num_ner)
         self.span_pool = MaxSpanPool
-        self.ev_to_ti_ca = CrossAttention(d=d, heads=6, none_token=True)
-        self.ti_to_ev_ca = CrossAttention(d=d, heads=6, none_token=False)
-        self.et = ETHead(d*4)
-        self.ee = EEHead(d*6, n_labels=ee_labels)
+        if use_ca:
+            self.ev_to_ti_ca = CrossAttention(d=d, heads=6, none_token=True)
+            self.ti_to_ev_ca = CrossAttention(d=d, heads=6, none_token=False)
+            self.et = ETHead(d*4)
+            self.ee = EEHead(d*6, n_labels=ee_labels)
+        else:
+            self.et = ETHead(d*2)
+            self.ee = EEHead(d*2, n_labels=ee_labels)
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
         self.loss_bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([22]))
+        self.is_using_ca = use_ca
 
     def save(self, save_path):
         torch.save({'model_state_dict':self.state_dict()}, save_path)
@@ -228,14 +237,19 @@ class TIEModel(nn.Module):
         hE = self.span_pool(H, ev_starts, ev_ends)  # [B, K, d] for events
         hT = self.span_pool(H, ti_starts, ti_ends)  # [B, K, d] for times
 
-        # 4a) Cross-Attention (Event->Time)
-        e_to_t_ca_out = self.ev_to_ti_ca(hE, hT, key_padding_mask=ti_mask)
-        hE_ref = e_to_t_ca_out["Q_refined"]
-        hT_e = e_to_t_ca_out["h_KV_exp"]
+        if self.is_using_ca:
+            # 4a) Cross-Attention (Event->Time)
+            e_to_t_ca_out = self.ev_to_ti_ca(hE, hT, key_padding_mask=ti_mask)
+            hE_ref = e_to_t_ca_out["Q_refined"]
+            hT_e = e_to_t_ca_out["h_KV_exp"]
 
-        # 4b) Cross-Attention (Time->Event)
-        t_to_e_ca_out = self.ti_to_ev_ca(hT, hE, key_padding_mask=ev_mask)
-        hT_ref = t_to_e_ca_out["Q_refined"]
+            # 4b) Cross-Attention (Time->Event)
+            t_to_e_ca_out = self.ti_to_ev_ca(hT, hE, key_padding_mask=ev_mask)
+            hT_ref = t_to_e_ca_out["Q_refined"]
+        else:
+            hT_ref = hT
+            hE_ref = hE
+            
 
         # 5a) Event Time Linking
         et_out = self.et(hT_ref, hE_ref)

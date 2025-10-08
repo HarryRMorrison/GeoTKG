@@ -71,7 +71,6 @@ def relaxed_correct_single(g: str, p: str) -> bool:
 def text_match(truth_text, pred_text):
     if pred_text is None and type(truth_text)==str:
         return False
-
     text_match = False
     if truth_text == pred_text:
         text_match = "strict"
@@ -80,6 +79,19 @@ def text_match(truth_text, pred_text):
     return text_match
 
 def sample_ner_compare(truths, preds, geo_ner=False):
+    # if (geo_ner==False and len(truths)-1 == len(preds)) or (geo_ner==True and len(truths)==len(preds)):
+    #     strict_results = []
+    #     relaxed_results = []
+    #     indx = 0
+    #     for truth in truths:
+    #         if geo_ner==False and truth['type'] != "EVENT" and truth['id']==0:
+    #             continue
+    #         else:
+    #             type_match = truth['type'] == preds[indx][-1]
+    #             strict_results.append((truth['text'] == preds[indx][0], type_match, truth['type']))
+    #             relaxed_results.append((relaxed_correct_single(truth['text'], preds[indx][0]), type_match, truth['type']))
+    #             indx += 1
+    # else:
     preds_copy = deepcopy(preds)
     strict_results = []
     for instance in truths:
@@ -116,42 +128,107 @@ def sample_ner_compare(truths, preds, geo_ner=False):
     
     return strict_results, relaxed_results
 
-def sample_quintuple_compare(truths, preds):
+def sample_quintuple_compare(truths, preds, wrong_count = 0):
     preds_copy = deepcopy(preds)
-    strict_results = []
+    results = []
     for truth in truths:
         matched = False
+
         for pred in preds_copy:
-            if truth["event"]==pred["event"] and truth["s_time"]==pred["s_time"] and truth["e_time"]==pred["e_time"]:
-                strict_results.append(1)
+            event_match = text_match(truth["event"], pred['event'])
+            if type(truth["sTime"]) == float:
+                if truth["sTime"] is None or pred['s_time'] is None:
+                    stime_match = truth["sTime"] == pred['s_time']
+                elif type(pred['s_time']) != float:
+                    stime_match = truth["sTime"] == float(pred['s_time'].year)
+                else:
+                    stime_match = truth["sTime"] == pred['s_time']
+            else:
+                stime_match = relaxed_correct_single(truth["sTime"], pred['s_time'])
+            
+            if type(truth["eTime"]) == float:
+                if truth["eTime"] is None or pred['e_time'] is None:
+                    etime_match = truth["eTime"] == pred['e_time']
+                elif type(pred['e_time']) != float:
+                    etime_match = truth["eTime"] == float(pred['e_time'].year)
+                else:
+                    etime_match = truth["eTime"] == pred['e_time']
+            else:
+                etime_match = relaxed_correct_single(truth["eTime"], pred['e_time'])
+            
+            try:
+                subject_match = False
+                for subj in pred['subject']:
+                    if text_match(truth['subject'], subj) != False:
+                        subject_match = True
+                        break
+            except TypeError:
+                subject_match= truth['subject']==pred['subject']
+            
+            try:
+                object_match = False
+                for obj in pred['object']:
+                    if text_match(truth['object'], obj) != False:
+                        object_match= True
+                        break
+            except TypeError:
+                object_match= truth['object']==pred['object']
+
+            if [event_match, stime_match, etime_match, subject_match, object_match].count(False)<=wrong_count:
+                results.append(1)
                 preds_copy.remove(pred)
                 matched = True
                 break
         if matched == False:
-            strict_results.append(0)
+            results.append(0)
+    stimes = quintuple_component_compare(truths, preds, "stime")
+    etimes = quintuple_component_compare(truths, preds, "etime")
+    events = quintuple_component_compare(truths, preds, "event")
+    subjec = quintuple_component_compare(truths, preds, "subject")
+    objec  = quintuple_component_compare(truths, preds, "object")
+    return results, stimes, etimes, events, subjec, objec
 
-    preds_copy = deepcopy(preds)
-    relaxed_results = []
-    for truth in truths:
-        matched = False
-        for pred in preds_copy:
-            if text_match(truth["event"], pred['event'])!=False and relaxed_correct_single(truth["s_time"], pred['s_time']) and relaxed_correct_single(truth["e_time"], pred['e_time']):
-                relaxed_results.append(1)
-                preds_copy.remove(pred)
-                matched = True
+def time_comp(t, p):
+    if type(t) == float:
+        if t is None or p is None:
+            stime_match = t == p
+        elif type(p) != float:
+            stime_match = t == float(p.year)
+        else:
+            stime_match = t == p
+    else:
+        stime_match = relaxed_correct_single(t, p)
+    return stime_match
+
+def text_comp(t, p):
+    try:
+        object_match = False
+        for obj in p:
+            if text_match(t, obj) != False:
+                object_match= True
                 break
-        if matched == False:
-            relaxed_results.append(0)
-    return strict_results, relaxed_results
+    except TypeError:
+        object_match= t==p
+    return object_match
 
-def sample_triple_compare(truths, preds):
+def quintuple_component_compare(truths, preds, method):
     preds_copy = deepcopy(preds)
-    preds_copy = get_ee_temprels(preds_copy, only_flipped=True)
     results = []
     for truth in truths:
         matched = False
         for pred in preds_copy:
-            if text_match(truth[0], pred[0])!=False and truth[1]==pred[1] and text_match(truth[2], pred[2])!=False:
+            if method=="stime":
+                matching_output = time_comp(truth['sTime'], pred['s_time'])
+            elif method=="etime":
+                matching_output = time_comp(truth['eTime'], pred['e_time'])
+            elif method=="event":
+                matching_output = text_match(truth['event'], pred['event'])!=False
+            elif method=="subject":
+                matching_output = text_comp(truth['subject'], pred['subject'])
+            else:
+                matching_output = text_comp(truth['object'], pred['object'])
+
+            if matching_output:
                 results.append(1)
                 preds_copy.remove(pred)
                 matched = True
@@ -159,3 +236,43 @@ def sample_triple_compare(truths, preds):
         if matched == False:
             results.append(0)
     return results
+
+
+def sample_triple_compare(truths, preds):
+    preds_copy = deepcopy(preds)
+    preds_copy = get_ee_temprels(preds_copy, exhaustive=True)
+    results = []
+    for truth in truths:
+        matched = False
+        for pred in preds_copy:
+            if text_match(truth['eid1'], pred[0])!=False and truth["rel"]==pred[1] and text_match(truth['eid2'], pred[2])!=False:
+                results.append(1)
+                preds_copy.remove(pred)
+                matched = True
+                break
+        if matched == False:
+            results.append(0)
+    return results
+
+def sample_norm_compare(truths, preds):
+    strict = []
+    relaxed = []
+    if len(truths)==len(preds):
+        for i in range(len(truths)):
+            strict.append(truths[i][1] == preds[i][1])
+            relaxed.append(relaxed_correct_single(truths[i][1], preds[i][1]))
+    else:
+        preds_copy = deepcopy(preds)
+        for truth in truths:
+            matched = False
+            for pred in preds_copy:
+                if text_match(truth[0], pred[0])!=False:
+                    strict.append(truth[1] == pred[1])
+                    relaxed.append(relaxed_correct_single(truth[1], pred[1]))
+                    preds_copy.remove(pred)
+                    matched = True
+                    break
+            if matched == False:
+                strict.append(0)
+                relaxed.append(0)
+    return strict, relaxed

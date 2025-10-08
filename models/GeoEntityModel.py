@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel
 from seqeval.metrics import f1_score as seqeval_f1, classification_report as seqeval_cr
-from geotkg.models.globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
+from models.globals import LABEL2ID_GEONER, ID2LABEL_GEONER, GEOENT_BI, GEOTIME_BI
 from transformers import AutoTokenizer
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-large", add_prefix_space=True)
     

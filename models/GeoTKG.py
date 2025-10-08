@@ -3,7 +3,13 @@ import torch.nn as nn
 from models.TIEModel import TIEModel
 from models.GeoEntityModel import GeoEntityModel
 from models.TimexNormUtils import compute_metrics as comput_norm_metrics
-from transformers import AutoModelForSeq2SeqLM, BartTokenizer
+from transformers import AutoModelForSeq2SeqLM, BartTokenizer, AutoTokenizer
+import re
+import isodate
+from datetime import timedelta, datetime, date
+from copy import deepcopy
+
+TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
 class BartSeq2SeqFineTuner(nn.Module):
     def __init__(self, model_name: str = "facebook/bart-base", label_smoothing: float = 0.0):
@@ -32,11 +38,59 @@ class BartSeq2SeqFineTuner(nn.Module):
             decoder_attention_mask=decoder_attention_mask,
         )
         return out  # has .loss (if labels) and .logits (decoder vocab logits)
+    
+    @staticmethod
+    def gentext_to_iso8601(gentext: str):
+        parsers = {
+            isodate.parse_date,
+            isodate.parse_datetime,
+            isodate.parse_time,
+            isodate.parse_duration,
+        }
+        for parser in parsers:
+            try:
+                output = parser(gentext)
+                if output is not None:
+                    return output
+            except Exception:
+                continue
+            return None
+    
+    def time_decode(gentext: str, dct):
+        if gentext[-3:] == "REF":
+            gentext = dct
+        parsed = BartSeq2SeqFineTuner.gentext_to_iso8601(gentext)
+        return parsed
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask=None, **kwargs):
         """Convenience passthrough for inference."""
         return self.model.generate(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+    
+    @torch.no_grad()
+    def collator(self, inputs):
+        enc = self.tokenizer(inputs, padding=True, truncation=True, return_tensors="pt")
+        return enc
+    
+    @torch.no_grad()
+    def predict(self, raw_inputs, dcts):
+        model_device = next(self.parameters()).device
+        time_decodings = []
+        for raw_input, dct in zip(raw_inputs, dcts):
+            if raw_input == []:
+                time_decodings.append([])
+                continue
+            encodings = self.collator(raw_input).to(model_device)
+            gen_ids = self.model.generate(
+                input_ids=encodings["input_ids"],
+                attention_mask=encodings["attention_mask"],
+                max_new_tokens=64,
+                num_beams=6,
+                early_stopping=True
+            )
+            decoded_preds = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
+            time_decodings.append([BartSeq2SeqFineTuner.time_decode(gen_time, dct) for gen_time in decoded_preds])
+        return time_decodings
 
 class GeoTKG(nn.Module):
     def __init__(self, use_ca=True):
@@ -70,9 +124,7 @@ class GeoTKG(nn.Module):
         tie_loss = tie_out['loss']
         geo_loss = geo_out['loss']
 
-        loss = tie_loss + geo_loss + norm_loss
-
-        return {'loss':loss, 'tie_loss':tie_loss, 'geo_loss':geo_loss, 'norm_loss':norm_loss}
+        return {'tie_loss':tie_loss, 'geo_loss':geo_loss, 'norm_loss':norm_loss}
     
     def evaluate_dataloaders(self, tie_loader, geo_loader, norm_loader):
         self.eval()
@@ -122,3 +174,93 @@ class GeoTKG(nn.Module):
         out['norm_strict'] = norm_metrics["accuracy strict"]
         out['norm_relaxed'] = norm_metrics["accuracy relaxed"]
         return out
+    
+    def get_word_mappings(self, enc):
+        input_ids = enc["input_ids"]
+        B, L = input_ids.shape
+        word_ids_list = [enc.word_ids(bi) for bi in range(B)]
+        word_maps = []
+        for bi, (wids, ids) in enumerate(zip(word_ids_list, input_ids)):
+            first_last = {}
+            for ti, wid in enumerate(wids):
+                if wid is None:
+                    continue
+                if wid not in first_last:
+                    first_last[wid] = [ti, ti]
+                else:
+                    first_last[wid][1] = ti
+            word_maps.append(first_last)
+        return (word_maps, word_ids_list, input_ids)
+    
+    def get_spans(self, word_maps, bio_ranges):
+        word_maps, word_ids_list, input_ids = word_maps
+        locations = []
+        for bi, first_last in enumerate(word_maps):
+            wids = word_ids_list[bi]
+            ids = input_ids[bi]
+            new_locations = []
+            token_slices = []
+            for (s, e, _t) in bio_ranges[bi]:
+                if s>=len(wids) or e>=len(wids) or s is None or e is None:
+                    start = 1
+                    end = 0
+                else:
+                    try:
+                        s_word, e_word = wids[int(s)], wids[int(e)]
+                    except:
+                        print(wids, ids, s, e)
+                    if s_word is None or e_word is None:
+                        start = 1
+                        end = 0
+                    else:
+                        start = first_last[s_word][0]
+                        end   = first_last[e_word][1]
+                token_slices.append(ids[start:end].tolist())
+                new_locations.append([start,end, _t])
+            decoded = TOKENIZER.batch_decode(token_slices, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+            sample_spans = [re.sub(r"[.!?,<>\[\]}{;:\"']", "", raw_span.strip()) for raw_span in decoded]
+            locations.append(zip(sample_spans, new_locations))
+
+        return locations
+    
+    def get_bart_normalisation_input(self, dcts, input_ids, time_spans):
+        inputs = []
+        for dct, ids, times in zip(dcts, input_ids, time_spans):
+            batch = []
+            for span, (s, e, ty) in times:
+                text_window = ids[max(0, s-100):min(len(ids), e+100)]
+                mask = text_window==1
+                out_text = TOKENIZER.decode(text_window[mask], skip_special_tokens=True)
+                input_text = f'DCT: {dct} \nTYPE: {ty} \nTEXT: {out_text} \nSPAN: \"{span}\"'
+                batch.append(input_text)
+            inputs.append(batch)
+        return inputs
+    
+    def predict(self, batch_text, dcts):
+        self.eval()
+        # Temporal Information Extraction
+        enc, events, timexs, et_preds, ee_triples, ee_mask = self.tie_model.predict(batch_text)
+        geo_times, geo_entities = self.geo_model.predict(batch_text)
+
+        word_maps = self.get_word_mappings(enc)
+        event_spans_and_locs = self.get_spans(word_maps, events)
+        events_backup = deepcopy(event_spans_and_locs)
+        timex_spans_and_locs = self.get_spans(word_maps, timexs)
+        timex_backup = deepcopy(timex_spans_and_locs)
+        geotime_spans_and_locs = self.get_spans(word_maps, geo_times)
+        geoent_spans_and_locs = self.get_spans(word_maps, geo_entities)
+
+        norm_inputs = self.get_bart_normalisation_input(dcts, enc['input_ids'], timex_spans_and_locs)            
+        normalised_times = self.norm_model.predict(norm_inputs, dcts)
+
+        return (enc, 
+                word_maps,
+                events_backup, 
+                timex_backup, 
+                normalised_times,
+                et_preds, ee_triples, ee_mask,
+                geoent_spans_and_locs, 
+                geotime_spans_and_locs)
+
+
+

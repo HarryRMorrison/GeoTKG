@@ -2,11 +2,16 @@ import json
 import isodate
 from datetime import datetime, date
 from copy import deepcopy
-from geotkg.models.globals import LABEL2ID_EVNER
+from models.globals import LABEL2ID_EVNER
 
-def get_data(path, preprocessor=None):
-    with open(path, "r") as f:
-        examples=[json.loads(line) for line in f]
+def get_data(path=None, preprocessor=None):
+    if path is not None:
+        with open(path, "r") as f:
+            examples=[json.loads(line) for line in f]
+    else:
+        with open('cleandata\geological_tkg_test.json', 'r') as file:
+            examples = json.load(file)
+
     if preprocessor is not None:
         examples = [preprocessor(example) for example in examples]
     return examples
@@ -232,7 +237,7 @@ def geo_eval_formating(example):
     i = 0
     while i < len(example["bio_tags"]):
         if example["bio_tags"][i] != "O":
-            text = example["tokens"][i]
+            text = example["tokens"][i] + " "
             tag = example["bio_tags"][i][2:]
             i += 1
             while i < len(example["bio_tags"]) and example["bio_tags"][i] == "I" + example["bio_tags"][i][1:]:
@@ -241,3 +246,71 @@ def geo_eval_formating(example):
             instances.append({"type": tag, "text":text.strip()})
         i += 1
     return instances
+
+def norm_formating(example):
+    output = []
+    try:
+        for inst in example['instances']:
+            if inst['type'] != "EVENT" and inst['id'] != 0:
+                iso_obj = gentext_to_iso8601(inst['value'])
+                output.append([inst['text'], iso_obj[0] if iso_obj is not None else None])
+    except:
+        for inst in example['pred']:
+            iso_obj = gentext_to_iso8601(inst[1])
+            output.append([inst[0], iso_obj[0] if iso_obj is not None else None])
+    return output
+
+def geo_test_set_tkg_format(example):
+    new_triples = [{"eid1":example['quintuples'][str(trip['eid1'])]['event'], "rel":trip['temp_rel'], "eid2":example['quintuples'][str(trip['eid2'])]['event']} for trip in example['triples']]
+    new_quins = []
+    for quin in list(example['quintuples'].values()):
+        if quin['sTime'] != "nan":
+            stime = gentext_to_iso8601(quin['sTime'])[0]
+            if stime is None:
+                stime = float(quin['sTime'].strip(" Ma"))
+        else:
+            stime = None
+        if quin['eTime'] != "nan":
+            etime = gentext_to_iso8601(quin['eTime'])[0]
+            if etime is None:
+                etime = float(quin['eTime'].strip(" Ma"))
+        else:
+            etime = None
+        quin['sTime'] = stime
+        quin['eTime'] = etime
+        if quin['subject'] == "nan":
+            quin['subject'] = None
+        if quin['object'] == "nan":
+            quin['object'] = None
+        new_quins.append(quin)
+    return {'triples':new_triples, 'quintuples':new_quins, 'text':example['text'], 'dct':example['dct']}
+
+def llama_preds_tkg_format(example):
+    example=example['pred']
+    new_quins = []
+    for quin in example['quintuples']:
+        if quin['s_time'] != "null":
+            stime = gentext_to_iso8601(quin['s_time'])[0]
+            if stime is None:
+                stime = float(quin['s_time'].strip(" Ma").strip("s").replace("late-","").replace("late ","").replace("early ","").replace("early-",""))
+        else:
+            stime = None
+        if quin['e_time'] != "null":
+            etime = gentext_to_iso8601(quin['e_time'])[0]
+            if etime is None:
+                etime = float(quin['e_time'].strip(" Ma").strip("s").replace("late-","").replace("late ","").replace("early ","").replace("early-",""))
+        else:
+            etime = None
+        quin['s_time'] = stime
+        quin['e_time'] = etime
+        if quin['subject'] == "null":
+            quin['subject'] = None
+        if quin['object'] == "null":
+            quin['object'] = None
+        new_quins.append(quin)
+    return {'triples':example['triples'], 'quintuples':new_quins}
+
+
+if __name__=="__main__":
+    test_data = get_data(preprocessor=geo_test_set_tkg_format)
+    print(test_data[0])

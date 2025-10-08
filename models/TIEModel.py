@@ -50,8 +50,7 @@ class ClassifingHead(nn.Module):
 
     def forward(self, x):
         logits = self.classifier(self.drop(x))  # [B, L, C]
-        out = {"logits": logits}
-        return out
+        return logits
 
 # ----------------------------
 # Cross-attention
@@ -103,17 +102,17 @@ class TIEModel(nn.Module):
         super().__init__()
         self.enc = AutoModel.from_pretrained(base)
         d = self.enc.config.hidden_size
-        self.ner = ClassifingHead(d, num_ner)
+        self.ner = ClassifingHead(d, num_labels=num_ner)
         self.span_pool = MaxSpanPool
 
         if use_ca:
             self.ev_to_ti_ca = CrossAttention(d=d, heads=6, none_token=True)
             self.ti_to_ev_ca = CrossAttention(d=d, heads=6, none_token=False)
-            self.et = ClassifingHead(d*4, num_labels=2, is_et_linker=True)
-            self.ee = ClassifingHead(d*6, n_labels=ee_labels)
+            self.et = ClassifingHead(d*4, num_labels=1)
+            self.ee = ClassifingHead(d*6, num_labels=ee_labels)
         else:
-            self.et = ClassifingHead(d*2, num_labels=2, is_et_linker=True)
-            self.ee = ClassifingHead(d*2, n_labels=ee_labels)
+            self.et = ClassifingHead(d*2, num_labels=1)
+            self.ee = ClassifingHead(d*2, num_labels=ee_labels)
         self.sig = nn.Sigmoid()
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=-100)  # for NER and EE
         self.loss_bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([22]))
@@ -182,7 +181,8 @@ class TIEModel(nn.Module):
             # Build pair vector + logits
             x = torch.cat([he1, he2, ht1, ht2, he1 * he2, (ht1 - ht2).abs()], dim=-1)  # [B,M,6d+2]
         else:
-            x = torch.cat([he1, he2])
+            x = torch.cat([he1, he2], dim=-1)
+        return x
 
     @torch.no_grad()
     def create_et_input(self, E, T, uses_ca=True):
@@ -205,8 +205,7 @@ class TIEModel(nn.Module):
         H = self.enc(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
 
         # 2) NER head
-        ner_out = self.ner(H)
-        ner_logits = ner_out["logits"]
+        ner_logits = self.ner(H)
         ner_loss = self.loss_ce(ner_logits.view(-1, ner_logits.size(-1)), 
                                 ner_gold_labels.view(-1))
         out["ner_loss"] = ner_loss
@@ -229,12 +228,11 @@ class TIEModel(nn.Module):
             et_input = self.create_et_input(hE_ref, hT_ref, uses_ca=True)
             ee_input = self.create_ee_input_pairs(hE_ref, ee_rel_gold[:, :, [0, 2]], hT_e)
         else:
-            et_input = self.create_et_input(hE_ref, hT_ref, uses_ca=False)
-            ee_input = self.create_ee_input_pairs(hE_ref, ee_rel_gold[:, :, [0, 2]])        
+            et_input = self.create_et_input(hE, hT, uses_ca=False)
+            ee_input = self.create_ee_input_pairs(hE, ee_rel_gold[:, :, [0, 2]])        
 
         # 5a) Event Time Linking
-        et_out = self.et(et_input)
-        et_logits = et_out['logits']
+        et_logits = self.et(et_input)
         mask = ev_ti_gold != -100
         et_loss = self.loss_bce(et_logits[mask].view(-1), 
                                 ev_ti_gold[mask].view(-1))
@@ -249,7 +247,7 @@ class TIEModel(nn.Module):
                                 ee_labels.view(-1))
         out["ee_loss"] = ee_loss
         out["ee_logits"] = ee_logits
-
+        
         out["loss"] = ner_loss + et_loss + ee_loss
         return out
     
@@ -302,7 +300,7 @@ class TIEModel(nn.Module):
                     et_ner['pred'].append(pred_seq)
 
                 # -------- Event→Time Link --------
-                et_pred = self.et.decode(out["et_logits"])                    # [B,Ne]
+                et_pred = self.decode_et_link(out["et_logits"])                    # [B,Ne]
                 gold_et = batch["ev_ti_gold"]                # [B,Ne] (long)
 
                 valid = gold_et != -100
@@ -347,7 +345,7 @@ class TIEModel(nn.Module):
         tokens.to(model_device)
         H = self.enc(input_ids=tokens['input_ids'], attention_mask=tokens['attention_mask']).last_hidden_state
         H.to(model_device)
-        ner_logits = self.ner(H)["logits"]
+        ner_logits = self.ner(H)
         ev_starts, ev_ends, ti_starts, ti_ends, ti_types = TIEModel.decode_ner(ner_logits)
         ev_mask = ev_starts != -1
         ti_mask = ti_starts != -1
@@ -381,12 +379,11 @@ class TIEModel(nn.Module):
             et_input = self.create_et_input(hE_ref, hT_ref, uses_ca=True)
             ee_input = self.create_ee_input_pairs(hE_ref, ee_pairs, hT_e)
         else:
-            et_input = self.create_et_input(hE_ref, hT_ref, uses_ca=False)
-            ee_input = self.create_ee_input_pairs(hE_ref, ee_pairs)
+            et_input = self.create_et_input(hE, hT, uses_ca=False)
+            ee_input = self.create_ee_input_pairs(hE, ee_pairs)
 
         et_out = self.et(et_input)
-        et_preds = self.et.decode(et_out['logits'])
-
+        et_preds = self.decode_et_link(et_out)
         ee_preds = self.ee(ee_input).argmax(-1)
         ee_triples = torch.cat([ee_pairs, ee_preds.unsqueeze(-1)], -1)
 
@@ -397,7 +394,7 @@ class TIEModel(nn.Module):
                 if start == -1:
                     continue
                 else:
-                    temp.append((start.item(), end.item(), "B-EVENT"))
+                    temp.append((start.item(), end.item(), "EVENT"))
             events.append(temp)
         times = []
         for i, time_batch in enumerate(ti_starts):
@@ -409,7 +406,7 @@ class TIEModel(nn.Module):
                     temp.append((start.item(), end.item(), type_))
             times.append(temp)
 
-        et_preds = et_preds * ti_mask.unsqueeze(1)
+        et_preds = et_preds.squeeze(-1) * ti_mask.unsqueeze(1)
 
         return tokens, events, times, et_preds, ee_triples, ee_mask
         

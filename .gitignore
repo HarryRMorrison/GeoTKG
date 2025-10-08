@@ -9,3 +9,4 @@
 training/results
 __pycache__/
 results/
+*.pt

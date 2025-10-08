@@ -273,7 +273,8 @@ class DependencyParser:
         # 6) For each EVENT entity, extract subject(s) and object(s) using dependency parse
         results = []
         so_index = 0
-        for ev in (e for e in doc.ents if e.label_ == "EVENT"):
+        all_evs = [e for e in doc.ents if e.label_ == "EVENT"]
+        for ev in all_evs:
             head: Token = ev.root  # head token of the event span
             subs, objs = self._extract_subject_object(head)
             if (ev.start_char, ev.end_char) in event_targets:

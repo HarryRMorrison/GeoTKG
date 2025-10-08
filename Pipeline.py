@@ -1,7 +1,4 @@
 from DependencyParsing import DependencyParser
-from geotkg.models.TIEModel import TIEModel
-from geotkg.models.GeoEntityModel import GeoEntityModel
-from geotkg.models.TimexNormModel import TimexNormModel
 import torch
 import numpy as np
 from transformers import AutoTokenizer
@@ -9,9 +6,10 @@ import warnings
 from transformers import logging as hf_logging
 from datetime import timedelta, datetime, date
 from isodate.duration import Duration
-from geotkg.models.globals import ID2LABEL_EE
+from models.globals import ID2LABEL_EE
 import re
 from copy import deepcopy
+from models.TimexNormModel import TimexNormModel
 
 # Suppress FutureWarnings
 warnings.filterwarnings("ignore", message=".*resume_download.*", category=FutureWarning)
@@ -22,60 +20,98 @@ hf_logging.set_verbosity_error()
 
 TOKENIZER = AutoTokenizer.from_pretrained("roberta-base", add_prefix_space=True)
 
+
 class GeoTKGPipeline:
-    def __init__(self):
+    def __init__(self, model_type, uses_ca=True):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if model_type == "pipeline":
+            self.is_pipe = True
+            from models.TIEModel import TIEModel
+            from models.GeoEntityModel import GeoEntityModel
 
-        self.GeoNER = GeoEntityModel(base="roberta-base").to(device=self.device)
-        load = torch.load("geotkg\\results\\geo_model\\large_geo_epoch15.pt")
-        self.GeoNER.load_state_dict(load['model_state_dict'])
+            self.GeoNER = GeoEntityModel(base="roberta-base").to(device=self.device)
+            load = torch.load("results\\geo_model\\geo_model.pt")
+            self.GeoNER.load_state_dict(load['model_state_dict'])
 
-        self.TIEModel = TIEModel().to(device=self.device)
-        load = torch.load("geotkg\\results\\tie_model\\tie_model_epoch20.pt")
-        self.TIEModel.load_state_dict(load['model_state_dict'])
-
-        self.NormModel = TimexNormModel("geotkg\\results\\norm_model\\time_norm_epoch15.pt")
+            self.NormModel = TimexNormModel("results\\norm_model\\time_norm_epoch15.pt")
+            if uses_ca:
+                print("Loading Pipeline with CA :", uses_ca)
+                tie_path = "results\\tie_model\\tie_model_epoch20.pt"
+            else:
+                print("Loading Pipeline without CA :", uses_ca)
+                tie_path = "results\\tie_model_no_ca\\tie_model_NO_CA_epoch20.pt"
+            self.TIEModel = TIEModel(use_ca=uses_ca).to(device=self.device)
+            load = torch.load(tie_path)
+            self.TIEModel.load_state_dict(load['model_state_dict'])
+        elif model_type == "multi-task":
+            if uses_ca:
+                print("Loading Multi-task with CA :", uses_ca)
+                path = "results\\geotkg\\geotkg_model_epoch20.pt"
+            else:
+                print("Loading Multi-task without CA :", uses_ca)
+                path = "results\\geotkg_no_ca\\geotkg_model_epoch20.pt"
+            from models.GeoTKG import GeoTKG
+            self.GeoTKG = GeoTKG(use_ca=uses_ca).to(device=self.device)
+            load = torch.load(path)
+            self.GeoTKG.load_state_dict(load['model_state_dict'])
+            self.is_pipe = False
 
         self.depparse = DependencyParser()
 
-    def pred(self, batch_text, DCTs, return_ner_results=False, only_tie=True):
+    def pred(self, batch_text, DCTs, mode):
         
         dcts = [TimexNormModel.gentext_to_iso8601(doctime) for doctime in DCTs]
 
-        # Temporal Information Extraction
-        enc, events, timexs, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batch_text)
-
-        word_maps = self.get_word_mappings(enc)
-        event_spans_and_locs = self.get_spans(word_maps, events)
-        timex_spans_and_locs = self.get_spans(word_maps, timexs)
-
-        norm_inputs = self.get_bart_normalisation_input(dcts, enc['input_ids'], timex_spans_and_locs)            
-        normalised_times = self.NormModel.predict(norm_inputs, dcts)
-
-        triples = self.form_triples(event_spans_and_locs, ee_triples, ee_mask)
-
-        if only_tie:
-            quintuples = self.form_tie_quintuples(event_spans, et_preds, normalised_times, dcts)
-            
-            if return_ner_results:
-                timex_spans = [[[span, s, e, ty] for span, (s, e, ty) in zip(**timexs)] for timexs in timex_spans_and_locs]
-                event_spans = [[[span, s, e, ty] for span, (s, e, ty) in zip(**events)] for events in event_spans_and_locs]
-                output = [{"quintuples":quins, "triples":trips, 'times':btimes, 'events':bevents} for (quins, trips, btimes, bevents) in zip(quintuples, triples, timex_spans, event_spans)]
-            else:
-                output = [{"quintuples":quins, "triples":trips} for (quins, trips) in zip(quintuples, triples)]
-        else:
-            # Geo Entity Extraction
+        if self.is_pipe:
+            # Temporal Information Extraction
+            enc, events, timexs, et_preds, ee_triples, ee_mask = self.TIEModel.predict(batch_text)
+            # Geological NER
             geo_times, geo_entities = self.GeoNER.predict(batch_text)
+
+            word_maps = self.get_word_mappings(enc)
             event_spans_and_locs = self.get_spans(word_maps, events)
-            events_copy = deepcopy(event_spans_and_locs)
+            timex_spans_and_locs = self.get_spans(word_maps, timexs)
             geotime_spans_and_locs = self.get_spans(word_maps, geo_times)
             geoent_spans_and_locs = self.get_spans(word_maps, geo_entities)
 
+            norm_inputs = self.get_bart_normalisation_input(dcts, enc['input_ids'], timex_spans_and_locs)            
+            normalised_times = self.NormModel.predict(norm_inputs, dcts)
+        else:
+            (enc, 
+            word_maps,
+            event_spans_and_locs, 
+            timex_spans_and_locs, 
+            normalised_times,
+            et_preds, ee_triples, ee_mask,
+            geoent_spans_and_locs, 
+            geotime_spans_and_locs) = self.GeoTKG.predict(batch_text, dcts)
+        
+        events_backup = deepcopy(event_spans_and_locs)
+        events_copy = deepcopy(event_spans_and_locs)
+
+        triples = self.form_triples(event_spans_and_locs, ee_triples, ee_mask)
+
+        if mode=="tie_isolation_testing": 
+            timex_spans = [[[span, s, e, ty] for span, (s, e, ty) in list(timexs)] for timexs in timex_spans_and_locs]
+            event_spans = [[[span, s, e, ty] for span, (s, e, ty) in list(events)] for events in events_backup]
+            output = [{'times':btimes, 'events':bevents} for (btimes, bevents) in zip(timex_spans, event_spans)]
+        elif mode=="geo_isolation_testing":
+            all_geos = []
+            for bi in range(len(batch_text)):
+                temp = []
+                for span, (s, e, ty) in list(geotime_spans_and_locs[bi]):
+                    temp.append([span, s, e, ty])
+                for span, (s, e, ty) in list(geoent_spans_and_locs[bi]):
+                    temp.append([span, s, e, ty])
+                temp = sorted(temp, key=lambda x : x[1])
+                all_geos.append(temp)
+            output = [{"geo":geo_ents} for geo_ents in all_geos]
+        else:
             batch_quintuples = []
             batch_event_retention = []
             for bi in range(len(batch_text)):
                 stripped_tokens = [TOKENIZER.decode(id_tok, skip_special_tokens=True).strip() for id_tok in enc['input_ids'][bi]]
-                dep_out, retention = self.depparse(stripped_tokens, word_maps[1][bi], geoent_spans_and_locs[bi], geotime_spans_and_locs[bi], event_spans_and_locs[bi])
+                dep_out, retention = self.depparse(stripped_tokens, word_maps[1][bi], geoent_spans_and_locs[bi], geotime_spans_and_locs[bi], events_backup[bi])
                 batch_quintuples.append(dep_out)
                 batch_event_retention.append(retention)
             quintuples, timescale_ents = self.form_quintuples(events_copy, et_preds, normalised_times, batch_quintuples, dcts, batch_event_retention)
@@ -123,8 +159,8 @@ class GeoTKGPipeline:
                     else:
                         start = first_last[s_word][0]
                         end   = first_last[e_word][1]
-                token_slices.append(ids[start:end+1].tolist())
-                new_locations.append([start,end+1, _t[2:]])
+                token_slices.append(ids[start:end].tolist())
+                new_locations.append([start,end, _t])
             decoded = TOKENIZER.batch_decode(token_slices, skip_special_tokens=True, clean_up_tokenization_spaces=True)
             sample_spans = [re.sub(r"[.!?,<>\[\]}{;:\"']", "", raw_span.strip()) for raw_span in decoded]
             locations.append(zip(sample_spans, new_locations))
@@ -208,6 +244,7 @@ class GeoTKGPipeline:
             bacth_timscale_ents = []
             events = list(events)
             for (span,(s,e,ty)), et_list, so_index in zip(events, event_times, retained):
+                timescales_nums = [[],[]]
                 if span == '' or so_index==-100:
                     continue
                 got_so.append(so)
@@ -222,6 +259,8 @@ class GeoTKGPipeline:
                         if entity['timescale']!=[]:
                             for timescale in entity['timescale']:
                                 bacth_timscale_ents.append([entity['text'], timescale['norm_min'], timescale['norm_max']])
+                                timescales_nums[0].append(timescale['norm_min'])
+                                timescales_nums[1].append(timescale['norm_max'])
                         ev_subs.append(entity["text"])
 
                 if object is not None:
@@ -230,7 +269,15 @@ class GeoTKGPipeline:
                         if entity['timescale']!=[]:
                             for timescale in entity['timescale']:
                                 bacth_timscale_ents.append([entity['text'], timescale['norm_min'], timescale['norm_max']])
+                                timescales_nums[0].append(timescale['norm_min'])
+                                timescales_nums[1].append(timescale['norm_max'])
                         ev_objs.append(entity["text"])
+
+                if s_time is None and e_time is None:
+                    if timescales_nums[0] != []:
+                        s_time = max(timescales_nums[0])
+                    if timescales_nums[1] != []:
+                        e_time = min(timescales_nums[1])
 
                 batch_quintuples.append({
                     'subject':ev_subs if subject is not None else None,
@@ -260,19 +307,21 @@ class GeoTKGPipeline:
 
         return
 if __name__=="__main__":
-    model = GeoTKGPipeline()
-    test = "During the Late Ordovician (ca. 455 Ma), the Karinya Batholith intruded the coastal belt and was emplaced into greenschist-grade sediments of the Narrin Group. It triggered rapid uplift along the Murran Fault, which was later reactivated in the Early Miocene (~21 Ma) as basaltic volcanism resumed. The shield volcano that formed then built a ~1.2-km pile; it collapsed soon after, and its debris was shed into the Warluk Basin, where it was reworked by shallow marine currents. In the eastern sector, rhyolitic domes erupted at 24 Ma and again at 19 Ma; these produced thick ignimbrites that blanket older shoreface sandstones. One dome at Mt. Wintara fed pyroclastic flows that overran the paleovalley; they later weathered to a red saprolite. Clast counts from the basin fill include a 1000 Ma granite xenolith, although it is clearly exotic. This package was unconformably overlain by fossiliferous limestones, and they were fractured during a brief uplift phase. Afterwards, subsidence resumed and the basin deepened, but it remained intermittently open to the shelf."
-    dct = "2025-06-10"
-    output = model.pred([test], [dct], only_tie=False)[0]
-
-    for quin in output['quintuples']:
-        print(quin)
-
-    for trip in output['triples']:
-        print(trip)
-
-    for scale in output['timescales']:
-        print(scale)
+    import json
+    model_paths = {
+        "geo_tkg": "results\\geotkg\\geotkg_model_epoch20.pt"
+    }
+    model = GeoTKGPipeline(model_paths=model_paths, uses_ca=True)
+    with open('cleandata\geological_tkg_test.json', 'r') as file:
+        test_data = json.load(file)
+    out_preds = []
+    for sample in test_data:
+        dcts = sample['dct']
+        text = sample['text']
+        output = model.pred([text], [dcts], mode="default")
+        out_preds.extend(output)
+        print(f"Processed {len(out_preds)}/{len(test_data)}")
+        print(output[0]['quintuples'])
 
     
 

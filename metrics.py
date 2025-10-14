@@ -173,7 +173,6 @@ def sample_quintuple_compare(truths, preds, wrong_count = 0):
                         break
             except TypeError:
                 object_match= truth['object']==pred['object']
-
             if [event_match, stime_match, etime_match, subject_match, object_match].count(False)<=wrong_count:
                 results.append(1)
                 preds_copy.remove(pred)

@@ -1,0 +1,1695 @@
+[
+    {
+        "text": "Prior to the 1990's there was no on-ground activity completed in the Tenement area. Between 1991 and 2007 Newcrest held ground south of E45/5270 as part of their Eva Well (Telfer Regional) Project. Limited work extended to the west of the Parallel Range e.g. shallow RAB and air core holes, no anomalism was reported. Normandy explored the Lamil Hills area near E45/5270 in the period 1998 to 2000. Work included a review of historic data including geological, geophysical and geochemical data, soil and rock chip sampling and RAB drilling. RAB drilling was designed to test the interpreted location of the Puntapunta Formation and to identify any concealed bedrock anomalies. Three RAB holes from this program were located within E45/5270. The drilling intersected mainly siltstones, sandstones and minor schists. A stripped regolith profile was present in the centre of the traverse but the depth of transported cover varied from 59 m in the north to >100 m in the south. No significant mineralisation was identified, the assays were mostly less than 2 ppb Au. The maximum intersection recorded was 4m of 8.1ppb Au.",
+        "dct": "2025-09-22",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 2
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 3
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 4
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 7
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 8
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 9
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 10
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 11
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 12
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 13
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 14
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 15
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 6
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 8
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 9
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 10
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 11
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 12
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 13
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 14
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 15
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 7
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 8
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 9
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 10
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 11
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 12
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 13
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 14
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 15
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 7
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 8
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 9
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 10
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 11
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 12
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 13
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 14
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 15
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "EQUALS",
+                "eid2": 5
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "EQUALS",
+                "eid2": 6
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "EQUALS",
+                "eid2": 7
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "EQUALS",
+                "eid2": 8
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "AFTER",
+                "eid2": 9
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "AFTER",
+                "eid2": 10
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "OVERLAPS ",
+                "eid2": 11
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "DURING",
+                "eid2": 12
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "DURING",
+                "eid2": 13
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "DURING",
+                "eid2": 14
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "DURING",
+                "eid2": 15
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "OVERLAPS ",
+                "eid2": 7
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "IDENTITY",
+                "eid2": 7
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 11
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 12
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "BEFORE",
+                "eid2": 13
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 14
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 15
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "no on-ground activity",
+                "event": "completed",
+                "object": "Tenement area",
+                "sTime": "nan",
+                "eTime": "1990"
+            },
+            "2": {
+                "subject": "Newcrest",
+                "event": "held",
+                "object": "ground south of E45/5270 as part of their Eva Well (Telfer Regional) Project",
+                "sTime": "1991",
+                "eTime": "2007"
+            },
+            "3": {
+                "subject": "limited work",
+                "event": "extended",
+                "object": "to the west of the Parallel Range shallow RAB and air core holes",
+                "sTime": "1991",
+                "eTime": "1998"
+            },
+            "4": {
+                "subject": NaN,
+                "event": "reported",
+                "object": "no anomalism",
+                "sTime": "nan",
+                "eTime": "1998"
+            },
+            "5": {
+                "subject": "Normandy",
+                "event": "explored",
+                "object": "Lamil Hills area near E45/5270",
+                "sTime": "1998",
+                "eTime": "2000"
+            },
+            "6": {
+                "subject": "Rock and chip",
+                "event": "sampling",
+                "object": NaN,
+                "sTime": "1998",
+                "eTime": "2000"
+            },
+            "7": {
+                "subject": "RAB",
+                "event": "drilling",
+                "object": NaN,
+                "sTime": "1998",
+                "eTime": "2000"
+            },
+            "8": {
+                "subject": "RAB drilling",
+                "event": "designed",
+                "object": "to test the interpreted location of the Puntapunta Formation and to identify any concealed bedrock anomalies",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "9": {
+                "subject": "Three RAB holes",
+                "event": "were located within",
+                "object": "E45/5270",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "10": {
+                "subject": NaN,
+                "event": "drilling intersect",
+                "object": "mainly siltstones, sandstones and minor schists",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "11": {
+                "subject": "A stripped regolith profile",
+                "event": "was present in",
+                "object": "the centre of the traverse",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "12": {
+                "subject": "The depth of transported cover",
+                "event": "varied from",
+                "object": "59 m in the north to >100 m in the south",
+                "sTime": "1998",
+                "eTime": "nan"
+            },
+            "13": {
+                "subject": NaN,
+                "event": "identified",
+                "object": "No significant mineralisation",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "14": {
+                "subject": "The assays",
+                "event": "were mostly less than",
+                "object": "2 ppb Au",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "15": {
+                "subject": "The maximum intersection",
+                "event": "was recorded as",
+                "object": "4m of 8.1 ppb Au",
+                "sTime": "nan",
+                "eTime": "nan"
+            }
+        }
+    },
+    {
+        "text": "Small inliers of Archean basement are recognized in the Billabong complex in the southeast Tanami and the Browns Range Metamorphics, dated around 2.5Ga. The Paleoproterozoic Tanami Group overly the Archean rocks and form a package of siliciclastic metasedimentary rocks with minor volcanics and chemical sediments. Simplistically, the group can be divided into a basal Dead Bullock Soak Formation dated at 1875-1865Ma and the overlying Killi Killi Formation dated at 1865-1835Ma.  Extensive work over decades by many researchers, companies and the WA and NT Geological Surveys, have determined that the Stubbins Formation and the Mt Charles beds are also time equivalents of the Dead Bullock Soak Formation (Maidment et al., 2020) and formed in a back-arc environment.",
+        "dct": "2024-12-19",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 2
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 3
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 4
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 7
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "INDENTITY",
+                "eid2": 3
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "EQUALS",
+                "eid2": 7
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "AFTER",
+                "eid2": 7
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "AFTER",
+                "eid2": 7
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "Small inliers of Archean basement",
+                "event": "are recognized in",
+                "object": "the Billabong Complex in the southeast Tanami and the Browns Range Metamorphics",
+                "sTime": "nan",
+                "eTime": "2500 Ma"
+            },
+            "2": {
+                "subject": "The Paleoproterozoic Tanami Group",
+                "event": "forms",
+                "object": "a package of siliciclastic metasedimentary rocks with minor volcanics and chemical sediments",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "3": {
+                "subject": "The Tanami Group",
+                "event": "is divided into",
+                "object": "a basal Dead Bullock Soak Formation (1875-1865 Ma) and the overlying Killi Killi Formation (1865-1835 Ma)",
+                "sTime": "1875 Ma",
+                "eTime": "1835 Ma"
+            },
+            "4": {
+                "subject": "The Dead Bullock Soak Formation",
+                "event": "is dated at",
+                "object": NaN,
+                "sTime": "1875 Ma",
+                "eTime": "1865 Ma"
+            },
+            "5": {
+                "subject": "The Killi Killi Formation",
+                "event": "is dated at",
+                "object": NaN,
+                "sTime": "1865 Ma",
+                "eTime": "1835 Ma"
+            },
+            "6": {
+                "subject": "Extensive work by many researchers, companies and the WA and NT Geological Surveys",
+                "event": "has determined that",
+                "object": "the Stubbins Formation and the Mt Charles beds are time equivalents of the Dead Bullock Soak Formation (Maidment et al., 2020)",
+                "sTime": "2020",
+                "eTime": "nan"
+            },
+            "7": {
+                "subject": "The Stubbins Formation and the Mt Charles beds",
+                "event": "formed in",
+                "object": "a back-arc environment",
+                "sTime": "1875 Ma",
+                "eTime": "1865 Ma"
+            }
+        }
+    },
+    {
+        "text": "Previous exploration within the project area has been focused on evaluation of the Ashburton and Edmund basin rocks for base metal deposits. Documented previous exploration activities commenced with CRAE regional airborne geophysics in the early 80s that generated a number of anomalies. However, these were not followed up until early 90s by Newcrest who successfully outlined significant zinc anomalism over 30km of strike within the lower stratigraphy of the Edmund Basin (Hodgson, 1995). ",
+        "dct": "2017-11-20",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "BEFORE",
+                "eid2": 4
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 4
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "Previous exploration within the project area",
+                "event": "has been focused on",
+                "object": "evaluation of the Ashburton and Edmund Basin rocks for base metal deposits",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "2": {
+                "subject": "Documented previous exploration activities",
+                "event": "commenced with",
+                "object": "CRAE regional airborne geophysics in the early 80s",
+                "sTime": "1980",
+                "eTime": "nan"
+            },
+            "3": {
+                "subject": "CRAE regional airborne geophysics",
+                "event": "generated",
+                "object": "a number of anomalies",
+                "sTime": "1980",
+                "eTime": "nan"
+            },
+            "4": {
+                "subject": "Newcrest",
+                "event": "followed up",
+                "object": "the anomalies in the early 90s",
+                "sTime": "1990",
+                "eTime": "nan"
+            },
+            "5": {
+                "subject": "Newcrest",
+                "event": "outlined",
+                "object": "significant zinc anomalism over 30 km of strike within the lower stratigraphy of the Edmund Basin",
+                "sTime": "1995",
+                "eTime": "nan"
+            }
+        }
+    },
+    {
+        "text": "The project area lies along the 560 Ma, West Kimberley Orogenic belt, specifically within Wunaamin Miliwundi Orogen, which is the western side of two Proterozoic orogens that bound the Kimberley craton. The Wunaamin Miliwundi Orogen is comprised of the meta-sedimentary and igneous rocks of the Hooper Complex and the deformed margins of the Speewah and Kimberley Basins. The Hooper Complex consists of igneous and low- to medium-grade metamorphosed sedimentary rocks. Within this complex, the Marboo Formation, 1870 Ma, consists of turbiditic meta-sedimentary rocks. These sediments have subsequently been intruded by the thick metadolerite sills of the Ruins Dolerite. The Ruins Dolerite is host to the known nickel-copper sulphide mineralisation at the Merlin and Dogleg prospects and is typically poorly exposed, consisting of steeply dipping metamorphosed basic sills. Overlying this is the felsic volcanic and volcaniclastic rock of the Whitewater Volcanics, formed by the partial melting of felsic calc-alkaline rocks. Following these events was the intrusion of the granitic rocks of the Paperbark Supersuite. This magmatism was followed by two cycles of sedimentary basin formation and fault reactivation, leading to the deposition of the Speewah and Kimberley basins which overly the Kimberley Craton. A regional extensional environment, towards the south of the Wunaamin Miliwundi Orogen, led to the formation of the Canning Basin and Lennard's shelf Devonian reef complexes. From 1963 to 1973 Pickands Mather undertook belt scale base metal and precious metal reconnaissance exploration within the Lamboo Province. The main exploration targets were nickel-copper sulphides within the McIntosh Gabbro, copper-lead-zinc within the metasedimentary and volcanic sequences, Tickalara metamorphic rocks, and Devonian reef carbonates. The regional stream sediment geochemical program covered both the West and East Kimberley. Three samples were collected within E04/2612, with no anomalism identified. Placer Prospecting held a large ground holding in the West Kimberley exploring for MVT-style Pb-Zn mineralisation in the Devonian carbonate complexes.",
+        "dct": "2025-03-06",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 7,
+                "temp_rel": "CONTAINS",
+                "eid2": 8
+            },
+            {
+                "eid1": 8,
+                "temp_rel": "INDENTITY",
+                "eid2": 7
+            },
+            {
+                "eid1": 9,
+                "temp_rel": "AFTER",
+                "eid2": 7
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "INDENTITY",
+                "eid2": 9
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "AFTER",
+                "eid2": 9
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "AFTER",
+                "eid2": 10
+            },
+            {
+                "eid1": 12,
+                "temp_rel": "CONTAINS",
+                "eid2": 13
+            },
+            {
+                "eid1": 13,
+                "temp_rel": "BEFORE",
+                "eid2": 14
+            },
+            {
+                "eid1": 14,
+                "temp_rel": "CONTAINS",
+                "eid2": 15
+            },
+            {
+                "eid1": 15,
+                "temp_rel": "CONTAINS",
+                "eid2": 16
+            },
+            {
+                "eid1": 16,
+                "temp_rel": "IDENTITY",
+                "eid2": 15
+            },
+            {
+                "eid1": 17,
+                "temp_rel": "BEFORE",
+                "eid2": 18
+            },
+            {
+                "eid1": 18,
+                "temp_rel": "CONTAINS",
+                "eid2": 19
+            },
+            {
+                "eid1": 19,
+                "temp_rel": "CONTAINS",
+                "eid2": 20
+            },
+            {
+                "eid1": 20,
+                "temp_rel": "CONTAINS",
+                "eid2": 21
+            },
+            {
+                "eid1": 20,
+                "temp_rel": "IDENTITY",
+                "eid2": 20
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "The project area",
+                "event": "lies along",
+                "object": "the 560 Ma West Kimberley Orogenic Belt within the Wunaamin Miliwundi Orogen",
+                "sTime": "560 Ma",
+                "eTime": "560 Ma"
+            },
+            "2": {
+                "subject": "The Wunaamin Miliwundi Orogen",
+                "event": "forms",
+                "object": "the western side of two Proterozoic orogens bounding the Kimberley Craton",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "3": {
+                "subject": "The Wunaamin Miliwundi Orogen",
+                "event": "is comprised of",
+                "object": "the meta-sedimentary and igneous rocks of the Hooper Complex and deformed margins of the Speewah and Kimberley Basins",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "4": {
+                "subject": "The Hooper Complex",
+                "event": "consists of",
+                "object": "igneous and low- to medium-grade metamorphosed sedimentary rocks",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "5": {
+                "subject": "The Marboo Formation",
+                "event": "consists of",
+                "object": "turbiditic meta-sedimentary rocks",
+                "sTime": "1870 Ma",
+                "eTime": "1870 Ma"
+            },
+            "6": {
+                "subject": "The Marboo Formation sediments",
+                "event": "were intruded by",
+                "object": "thick metadolerite sills of the Ruins Dolerite",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "7": {
+                "subject": "The Ruins Dolerite",
+                "event": "hosts",
+                "object": "nickel-copper sulphide mineralisation at the Merlin and Dogleg prospects",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "8": {
+                "subject": "The Ruins Dolerite",
+                "event": "consists of",
+                "object": "steeply dipping metamorphosed basic sills",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "9": {
+                "subject": "The Whitewater Volcanics",
+                "event": "overlie",
+                "object": "the Ruins Dolerite",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "10": {
+                "subject": "The Whitewater Volcanics",
+                "event": "were formed by",
+                "object": "partial melting of felsic calc-alkaline rocks",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "11": {
+                "subject": "Granitic rocks of the Paperbark Supersuite",
+                "event": "were intruded following",
+                "object": "formation of the Whitewater Volcanics",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "12": {
+                "subject": "Magmatism",
+                "event": "was followed by",
+                "object": "two cycles of sedimentary basin formation and fault reactivation",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "13": {
+                "subject": "Basin formation and fault reactivation",
+                "event": "led to",
+                "object": "deposition of the Speewah and Kimberley Basins over the Kimberley Craton",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "14": {
+                "subject": "A regional extensional environment",
+                "event": "led to",
+                "object": "formation of the Canning Basin and Lennard's Shelf Devonian reef complexes",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "15": {
+                "subject": "Pickands Mather",
+                "event": "undertook",
+                "object": "belt-scale base- and precious-metal reconnaissance exploration within the Lamboo Province",
+                "sTime": "1963",
+                "eTime": "1973"
+            },
+            "16": {
+                "subject": "The main exploration targets",
+                "event": "were",
+                "object": "Ni-Cu sulphides in McIntosh Gabbro, Cu-Pb-Zn in metasedimentary and volcanic sequences, Tickalara metamorphic rocks, and Devonian reef carbonates",
+                "sTime": "1963",
+                "eTime": "1973"
+            },
+            "17": {
+                "subject": "The regional stream-sediment geochemical program",
+                "event": "covered",
+                "object": "both the West and East Kimberley",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "18": {
+                "subject": "Three samples",
+                "event": "were collected within",
+                "object": "E04/2612",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "19": {
+                "subject": "The samples",
+                "event": "showed",
+                "object": "no anomalism",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "20": {
+                "subject": "Placer Prospecting",
+                "event": "held",
+                "object": "a large ground holding in the West Kimberley",
+                "sTime": "nan",
+                "eTime": "nan"
+            },
+            "21": {
+                "subject": "Placer Prospecting",
+                "event": "explored for",
+                "object": "MVT-style Pb-Zn mineralisation in the Devonian carbonate complexes",
+                "sTime": "nan",
+                "eTime": "nan"
+            }
+        }
+    },
+    {
+        "text": "During 1997 and 1998 Consolidated Gold Mines Limited explored ultramafic and mafic rocks to the north of E36/929 for nickel-cobalt mineralisation. RAB and RC resource drilling at their Pinnacles South prospect (5.5km north of E36/929) intersected significant nickel-cobalt mineralisation. Between 2000 and 2001 Mt Margaret Nickel Pty Ltd explored the areas surrounding Lucky Shot and Lookout Wells for potential plant and tailings storage site for the nearby Mt Margaret Nickel Project. Activities included geological reviews and reconnaissance work, ethnographic surveys and a preliminary environmental review. Liberty Resources NL explored the area between 2005 and 2012. Liberty explored the project for uranium mineralisation although recognised the potential for gold and nickel mineralisation. Liberty completed surface sampling using a hand-held auger rig.",
+        "dct": "2020-10-02",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 2
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "CONTAINS",
+                "eid2": 5
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "CONTAINS",
+                "eid2": 6
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 7,
+                "temp_rel": "IDENTITY",
+                "eid2": 6
+            },
+            {
+                "eid1": 8,
+                "temp_rel": "CONTAINS",
+                "eid2": 9
+            },
+            {
+                "eid1": 9,
+                "temp_rel": "CONTAINS",
+                "eid2": 10
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 11
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "IDENTITY",
+                "eid2": 10
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "Consolidated Gold Mines Limited",
+                "event": "explored",
+                "object": "ultramafic and mafic rocks north of E36/929 for nickel-cobalt mineralisation",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "2": {
+                "subject": "RAB and RC resource drilling",
+                "event": "was conducted at",
+                "object": "at the Pinnacles South prospect (5.5 km north of E36/929)",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "3": {
+                "subject": "Drilling at Pinnacles South",
+                "event": "intersected",
+                "object": "significant nickel-cobalt mineralisation",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "4": {
+                "subject": "Mt Margaret Nickel Pty Ltd",
+                "event": "explored",
+                "object": "areas surrounding Lucky Shot and Lookout Wells for potential plant and tailings storage site for the Mt Margaret Nickel Project",
+                "sTime": "2000",
+                "eTime": "2001"
+            },
+            "5": {
+                "subject": "Activities by Mt Margaret Nickel Pty Ltd",
+                "event": "included",
+                "object": "geological reviews and reconnaissance work",
+                "sTime": "2000",
+                "eTime": "2001"
+            },
+            "6": {
+                "subject": "Activities by Mt Margaret Nickel Pty Ltd",
+                "event": "included",
+                "object": "ethnographic surveys",
+                "sTime": "2000",
+                "eTime": "2001"
+            },
+            "7": {
+                "subject": "Activities by Mt Margaret Nickel Pty Ltd",
+                "event": "included",
+                "object": "a preliminary environmental review",
+                "sTime": "2000",
+                "eTime": "2001"
+            },
+            "8": {
+                "subject": "Liberty Resources NL",
+                "event": "explored",
+                "object": "the area",
+                "sTime": "2005",
+                "eTime": "2012"
+            },
+            "9": {
+                "subject": "Liberty Resources NL",
+                "event": "explored the project for",
+                "object": "uranium mineralisation",
+                "sTime": "2005",
+                "eTime": "2012"
+            },
+            "10": {
+                "subject": "Liberty Resources NL",
+                "event": "recognised",
+                "object": "potential for gold and nickel mineralisation",
+                "sTime": "2005",
+                "eTime": "2012"
+            },
+            "11": {
+                "subject": "Liberty Resources NL",
+                "event": "completed",
+                "object": "surface sampling using a hand-held auger rig",
+                "sTime": "2005",
+                "eTime": "2012"
+            }
+        }
+    },
+    {
+        "text": "Exploration has been conducted around the Whitewood CRG area since the 1960s, targeting iron, manganese, base metals, precious metals, and uranium. Sentinel Mining investigated for low grade iron-manganese occurrences associated with the unconformity between the Hamersley Group/Carawine Dolomite palaeokarst and overlying Pinjan Chert Breccia, and Middle Proterozoic Manganese Group during the 1970s. \"The ... programme failed to locate any new manganese or manganiferous deposits of any consequence.\" During the late-1970s, Texasgulf Australia Ltd conducted brief exploration for manganese enrichments on Middle Proterozoic shales (Bangemall Group) and Cainozoic mineralised screes. \"Extensive areas of manganiferous scree occur... The small dip slope consists of manganiferous shales on the surface, with very little depth to the enrichment.\"  In the early 1980s, US Steel International Inc conducted exploration for ultramafic-hosted nickel-copper sulphides on Archaean greenstone sequences throughout the Pilbara granite greenstone terrane. Regional geochemical (rock, stream and soil) sampling outlined areas for more detailed follow-up using geophysics (magnetics and EM), geochemical sampling and minor drilling. The company concluded that: \"Because of...the limited understanding of the genesis, environment and surface expression of...nickel deposits {in the Pilbara} it would not be practical or useful to continue with this exploration programme.\" Valiant Consolidated Ltd carried out manganese exploration in the early-1990s, in the Pickering Creek and Salt Well areas. \"The licence area comprises sediments including shales of the Balfour Formation and various dolomite, chert, shale-siltstone and sandstone units of the older Stag Arrow Formation...A small area of Hamersley Group sediments lies on the southern margin of the licence... Interpretation of Landsat imagery for characteristic manganese- in-shale signatures was carried out with only nonmanganese sources being found.\" Helix Resources NL explored for platinum and gold at the Rat Hill prospect in the 1990s. Exploration for platinum focused on a 10 km long gabbroic unit which intrudes metasedimentary rock at the hinge of the Rat Hill Anticline. Rock chip sampling and drilling carried out by a previous operator returned anomalous Pt-Pd values within a sulphide-rich gabbroic unit (to 39 ppb Pt, 84 ppb Pd). A soil sampling program confirmed anomalous PGE results. Further work was recommended. In the late 1990s, Hunter Exploration NL worked on the same area. Work completed during 1997 to 1998 comprised stream sediment sampling to evaluate gold, platinoid and base metal potential. Maximum values returned included 3.8 ppb Au, 0.96 ppb Pd, 0.06 ppb Pt, 340 ppm Cr, 130 ppm Ni, 78 ppm Cu, 100 ppm Zn, 10 ppm As, and 19 ppm Pb. The results were considered low, and the tenement was surrendered.",
+        "dct": "2018-04-04",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "AFTER",
+                "eid2": 3
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "AFTER",
+                "eid2": 5
+            },
+            {
+                "eid1": 7,
+                "temp_rel": "CONTAINS",
+                "eid2": 8
+            },
+            {
+                "eid1": 8,
+                "temp_rel": "BEFORE",
+                "eid2": 9
+            },
+            {
+                "eid1": 9,
+                "temp_rel": "AFTER",
+                "eid2": 8
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "CONTAINS",
+                "eid2": 11
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "BEFORE",
+                "eid2": 12
+            },
+            {
+                "eid1": 12,
+                "temp_rel": "AFTER",
+                "eid2": 11
+            },
+            {
+                "eid1": 13,
+                "temp_rel": "CONTAINS",
+                "eid2": 14
+            },
+            {
+                "eid1": 14,
+                "temp_rel": "CONTAINS",
+                "eid2": 15
+            },
+            {
+                "eid1": 15,
+                "temp_rel": "CONTAINS",
+                "eid2": 16
+            },
+            {
+                "eid1": 16,
+                "temp_rel": "BEFORE",
+                "eid2": 17
+            },
+            {
+                "eid1": 17,
+                "temp_rel": "AFTER",
+                "eid2": 16
+            },
+            {
+                "eid1": 18,
+                "temp_rel": "CONTAINS",
+                "eid2": 19
+            },
+            {
+                "eid1": 19,
+                "temp_rel": "CONTAINS",
+                "eid2": 20
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "Exploration",
+                "event": "has been conducted around",
+                "object": "the Whitewood CRG area targeting Fe, Mn, base metals, precious metals, and U",
+                "sTime": "1960",
+                "eTime": "nan"
+            },
+            "2": {
+                "subject": "Sentinel Mining",
+                "event": "investigated for",
+                "object": "low-grade Fe-Mn occurrences at the Hamersley Group/Carawine Dolomite unconformity and overlying Pinjan Chert Breccia and Manganese Group",
+                "sTime": "1970",
+                "eTime": "1979"
+            },
+            "3": {
+                "subject": "The Sentinel Mining programme",
+                "event": "failed to locate",
+                "object": "new Mn or manganiferous deposits of any consequence",
+                "sTime": "1970",
+                "eTime": "1979"
+            },
+            "4": {
+                "subject": "Texasgulf Australia Ltd",
+                "event": "conducted",
+                "object": "brief exploration for Mn enrichment in Middle Proterozoic shales (Bangemall Group) and Cainozoic screes",
+                "sTime": "1977",
+                "eTime": "1979"
+            },
+            "5": {
+                "subject": "Texasgulf",
+                "event": "reported",
+                "object": "extensive areas of manganiferous scree and shallow Mn-enriched shale",
+                "sTime": "1977",
+                "eTime": "1979"
+            },
+            "6": {
+                "subject": "US Steel International Inc",
+                "event": "conducted",
+                "object": "exploration for ultramafic-hosted Ni-Cu sulphides in Archaean greenstone sequences",
+                "sTime": "1980",
+                "eTime": "1984"
+            },
+            "7": {
+                "subject": "US Steel",
+                "event": "undertook",
+                "object": "regional geochemical sampling (rock, stream, soil) outlining follow-up areas for geophysics, sampling, and drilling",
+                "sTime": "1980",
+                "eTime": "1984"
+            },
+            "8": {
+                "subject": "The US Steel programme",
+                "event": "was discontinued due to",
+                "object": "limited understanding of the genesis, environment, and surface expression of Ni deposits in the Pilbara",
+                "sTime": "1984",
+                "eTime": "nan"
+            },
+            "9": {
+                "subject": "Valiant Consolidated Ltd",
+                "event": "carried out",
+                "object": "Mn exploration in the Pickering Creek and Salt Well areas",
+                "sTime": "1990",
+                "eTime": "1992"
+            },
+            "10": {
+                "subject": "The Valiant licence area",
+                "event": "comprised",
+                "object": "sediments including shales of the Balfour Formation and dolomite, chert, shale-siltstone, and sandstone of the Stag Arrow Formation",
+                "sTime": "1990",
+                "eTime": "1992"
+            },
+            "11": {
+                "subject": "Valiant Consolidated",
+                "event": "interpreted",
+                "object": "Landsat imagery for Mn-in-shale signatures with only non-manganese sources found",
+                "sTime": "1990",
+                "eTime": "1992"
+            },
+            "12": {
+                "subject": "Helix Resources NL",
+                "event": "explored for",
+                "object": "Pt and Au at the Rat Hill prospect",
+                "sTime": "1990",
+                "eTime": "1996"
+            },
+            "13": {
+                "subject": "Exploration for platinum",
+                "event": "focused on",
+                "object": "a 10 km long gabbroic unit intruding metasedimentary rock at the Rat Hill Anticline hinge",
+                "sTime": "1990",
+                "eTime": "1996"
+            },
+            "14": {
+                "subject": "Rock chip sampling and drilling by previous operators",
+                "event": "returned",
+                "object": "anomalous Pt-Pd values within sulphide-rich gabbroic unit (39 ppb Pt, 84 ppb Pd)",
+                "sTime": "1990",
+                "eTime": "1996"
+            },
+            "15": {
+                "subject": "A soil sampling program",
+                "event": "confirmed",
+                "object": "anomalous PGE results",
+                "sTime": "1990",
+                "eTime": "1996"
+            },
+            "16": {
+                "subject": "Further work",
+                "event": "was",
+                "object": "recommended",
+                "sTime": "1990",
+                "eTime": "1996"
+            },
+            "17": {
+                "subject": "Hunter Exploration NL",
+                "event": "worked on",
+                "object": "the same Rat Hill area",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "18": {
+                "subject": "Hunter's work",
+                "event": "comprised",
+                "object": "stream sediment sampling to evaluate Au, platinoid, and base metal potential",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "19": {
+                "subject": "The sampling results",
+                "event": "returned",
+                "object": "maximum values of 3.8 ppb Au, 0.96 ppb Pd, 0.06 ppb Pt, and trace metals (Cr, Ni, Cu, Zn, As, Pb)",
+                "sTime": "1997",
+                "eTime": "1998"
+            },
+            "20": {
+                "subject": "The results",
+                "event": "were considered",
+                "object": "low, and the tenement was surrendered",
+                "sTime": "1998",
+                "eTime": "nan"
+            }
+        }
+    },
+    {
+        "text": "The geological history of the West Musgrave Province reflects a complex sequence of depositional, magmatic, metamorphic, and tectonic events spanning over a billion years. Sediments and felsic volcanics of the Birksgate Complex were deposited between 1600 Ma and 1200 Ma (and possibly earlier), followed by high-grade metamorphism and deformation from 1200 to 1150 Ma. During this period, basement structures were reactivated, mylonite zones up to 2 km thick developed, and the complex was metamorphosed to granulite facies para- and orthogneiss. Around 1085-1040 Ma, the Bentley Supergroup was deposited, consisting of mafic and rhyolitic volcanic rocks, conglomerates, arkoses, and sandstones of the Tollu Group. Shortly after, between 1078 and 1067 Ma, mafic and ultramafic rocks of the Giles Complex were intruded. This large east-west-elongated intrusive body covers roughly 25,000 km2 in outcrop, though recent mapping suggests it is at least twice that size. The Giles Complex comprises high- and low-level intrusions arranged from south to north, respectively. Around 1080-1060 Ma, orthopyroxene-bearing charnockitic granites, likely generated by crustal melting driven by the heat from the Giles Complex intrusions, were emplaced, accompanied by deep crustal thrusting and the formation of gneissic belts around 1075 Ma. Subsequently, post-Tollu Group granites, including A-type fluorite- and apatite-bearing varieties often associated with iron oxide copper-gold (IOCG) deposits, were intruded. At approximately 800 Ma, the Musgrave Block was crosscut by dolerite dykes, marking a later intrusive phase.",
+        "dct": "2016-01-01",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 2
+            },
+            {
+                "eid1": 2,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 3,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 4,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "BEFORE",
+                "eid2": 6
+            },
+            {
+                "eid1": 6,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 7,
+                "temp_rel": "BEFORE",
+                "eid2": 8
+            },
+            {
+                "eid1": 8,
+                "temp_rel": "CONTAINS",
+                "eid2": 9
+            },
+            {
+                "eid1": 9,
+                "temp_rel": "BEFORE",
+                "eid2": 10
+            },
+            {
+                "eid1": 10,
+                "temp_rel": "BEFORE",
+                "eid2": 11
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "Sediments and felsic volcanics of the Birksgate Complex",
+                "event": "were deposited",
+                "object": "within the West Musgrave Province",
+                "sTime": "1600",
+                "eTime": "1200"
+            },
+            "2": {
+                "subject": "The Birksgate Complex",
+                "event": "underwent",
+                "object": "high-grade metamorphism and deformation",
+                "sTime": "1200",
+                "eTime": "1150"
+            },
+            "3": {
+                "subject": "Basement structures",
+                "event": "were reactivated",
+                "object": "forming mylonite zones up to 2 km thick",
+                "sTime": "1200",
+                "eTime": "1150"
+            },
+            "4": {
+                "subject": "The Birksgate Complex",
+                "event": "was metamorphosed to",
+                "object": "granulite facies para- and orthogneiss",
+                "sTime": "1200",
+                "eTime": "1150"
+            },
+            "5": {
+                "subject": "The Bentley Supergroup",
+                "event": "was deposited",
+                "object": "including mafic and rhyolitic volcanic rocks, conglomerates, arkoses, and sandstones of the Tollu Group",
+                "sTime": "1085",
+                "eTime": "1040"
+            },
+            "6": {
+                "subject": "Mafic and ultramafic rocks of the Giles Complex",
+                "event": "were intruded",
+                "object": "forming a large east-west-elongated intrusive body",
+                "sTime": "1078",
+                "eTime": "1067"
+            },
+            "7": {
+                "subject": "The Giles Complex",
+                "event": "was mapped as",
+                "object": "covering approximately 25,000 km2 in outcrop",
+                "sTime": "1078",
+                "eTime": "1067"
+            },
+            "8": {
+                "subject": "Orthopyroxene-bearing charnockitic granites",
+                "event": "generated by",
+                "object": "likely formed by crustal melting driven by Giles Complex heat",
+                "sTime": "1080",
+                "eTime": "1060"
+            },
+            "9": {
+                "subject": "Deep crustal thrusting and gneissic belt formation",
+                "event": "occurred",
+                "object": "within the West Musgrave Province",
+                "sTime": "1075",
+                "eTime": "1075"
+            },
+            "10": {
+                "subject": "Post-Tollu Group granites",
+                "event": "were intruded",
+                "object": "including A-type fluorite- and apatite-bearing granites (potential IOCG association)",
+                "sTime": "1075",
+                "eTime": "1075"
+            },
+            "11": {
+                "subject": "The Musgrave Block",
+                "event": "was crosscut by",
+                "object": "dolerite dykes, marking a later intrusive phase",
+                "sTime": "800",
+                "eTime": "800"
+            }
+        }
+    },
+    {
+        "text": "During the 2016-2018 reporting period, a series of 250 plaints across much of the acquired tenure curtailed much of the exploration efforts over the Tenement with most efforts directed to mining lease which adjacent to operating mines. Much of the work consisted of a review of the initial targeting work competed by Hanking and a reassessment of this work. Drilling centred on extending known gold mineralisation within the mining lease near to operating mines and established infrastructure. During the 2018-2019 reporting period a review of the lithium, caesium, and tantalum potential and establish the exploration methodology for these two rare earth elements. The review covered geological setting, fertile granite identification, lithium-caesium-tantalum (LCT) pegmatite targeting, and pegmatite mapping and geochemical sampling/targeting. The review showed that significant quantities of pegmatite and the required LCT pegmatites exist within the Marvel Loch area. Occurrences of pegmatite were defined throughout the Southern Cross Project being best observed in mine pits and near the granitegreenstone contact. Also, numerous drill holes have pegmatite logged. Based on the result of the high-level review, further exploration is planned across the entire Company's Southern Cross Project tenure package including the Tenement. Until the 2019-2020 reporting period, apart from the LCT pegmatite review, all exploration completed within the Tenement has been driven by the initial Hanking target generation which has partially haphazard and did not always centre around defining additional gold mineralisation leading to resources for the current operating mines. As a result, during the 2019-2020 reporting period the Company undertook a regional rethink on the Tenement and applying Witt (2013) and Witt et al (2015 and 2017) target criteria. Apart from drilling along strike from known deposits/mines, the need to identify blind orebodies with tonnages and grades in excess of the modern near-surface resources was required. Despite considerable success in identifying near-surface gold during the periods 1890-1910 and 1985-2005, the discovery rate for gold in the Yilgarn as a whole has slowed significantly. Exploration for blind orebodies relies on the identification of geophysical expressions of subsurface ore, a geochemical expression of the ore in the overlying transported sediments or sedimentary rocks, or a conceptual approach that predicts the presence of ore on the basis of the geological controls of know near-surface gold mineralisation.",
+        "dct": "2020-10-30",
+        "triples": [
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 2
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 3
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "CONTAINS",
+                "eid2": 4
+            },
+            {
+                "eid1": 1,
+                "temp_rel": "BEFORE",
+                "eid2": 5
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "CONTAINS",
+                "eid2": 6
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "CONTAINS",
+                "eid2": 7
+            },
+            {
+                "eid1": 7,
+                "temp_rel": "CONTAINS",
+                "eid2": 8
+            },
+            {
+                "eid1": 8,
+                "temp_rel": "CONTAINS",
+                "eid2": 9
+            },
+            {
+                "eid1": 5,
+                "temp_rel": "BEFORE",
+                "eid2": 10
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "CONTAINS",
+                "eid2": 12
+            },
+            {
+                "eid1": 11,
+                "temp_rel": "BEFORE",
+                "eid2": 13
+            },
+            {
+                "eid1": 13,
+                "temp_rel": "CONTAINS",
+                "eid2": 14
+            },
+            {
+                "eid1": 13,
+                "temp_rel": "AFTER",
+                "eid2": 10
+            },
+            {
+                "eid1": 15,
+                "temp_rel": "BEFORE",
+                "eid2": 16
+            },
+            {
+                "eid1": 16,
+                "temp_rel": "CONTAINS",
+                "eid2": 17
+            }
+        ],
+        "quintuples": {
+            "1": {
+                "subject": "A series of 250 plaints",
+                "event": "curtailed",
+                "object": "much of the exploration efforts over the Tenement",
+                "sTime": "2016",
+                "eTime": "2018"
+            },
+            "2": {
+                "subject": "Exploration efforts",
+                "event": "were directed to",
+                "object": "mining leases adjacent to operating mines",
+                "sTime": "2016",
+                "eTime": "2018"
+            },
+            "3": {
+                "subject": "The work",
+                "event": "consisted of",
+                "object": "a review and reassessment of Hanking's initial targeting work",
+                "sTime": "2016",
+                "eTime": "2018"
+            },
+            "4": {
+                "subject": "Drilling",
+                "event": "centred on",
+                "object": "extending known gold mineralisation within the mining lease near operating mines",
+                "sTime": "2016",
+                "eTime": "2018"
+            },
+            "5": {
+                "subject": "A review",
+                "event": "was conducted on",
+                "object": "lithium, caesium, and tantalum potential and to establish exploration methodology",
+                "sTime": "2018",
+                "eTime": "2019"
+            },
+            "6": {
+                "subject": "The review",
+                "event": "covered",
+                "object": "geological setting, fertile granite identification, LCT pegmatite targeting, pegmatite mapping, and geochemical sampling",
+                "sTime": "2018",
+                "eTime": "2019"
+            },
+            "7": {
+                "subject": "The review",
+                "event": "showed",
+                "object": "that significant quantities of LCT pegmatites exist within the Marvel Loch area",
+                "sTime": "2018",
+                "eTime": "2019"
+            },
+            "8": {
+                "subject": "Occurrences of pegmatite",
+                "event": "were defined throughout",
+                "object": "the Southern Cross Project, best observed in mine pits and near granite-greenstone contact",
+                "sTime": "2018",
+                "eTime": "2019"
+            },
+            "9": {
+                "subject": "Numerous drill holes",
+                "event": "have",
+                "object": "pegmatite logged",
+                "sTime": "2018",
+                "eTime": "2019"
+            },
+            "10": {
+                "subject": "Further exploration",
+                "event": "was planned across",
+                "object": "the Company's Southern Cross Project tenure package including the Tenement",
+                "sTime": "2019",
+                "eTime": "nan"
+            },
+            "11": {
+                "subject": "All previous exploration",
+                "event": "had been driven by",
+                "object": "initial Hanking target generation",
+                "sTime": "nan",
+                "eTime": "2019"
+            },
+            "12": {
+                "subject": "Hanking target generation",
+                "event": "was",
+                "object": "partially haphazard and not always focused on defining additional gold mineralisation",
+                "sTime": "nan",
+                "eTime": "2019"
+            },
+            "13": {
+                "subject": "The Company",
+                "event": "undertook",
+                "object": "a regional rethink on the Tenement applying Witt (2013, 2015, 2017) target criteria",
+                "sTime": "2019",
+                "eTime": "2020"
+            },
+            "14": {
+                "subject": "The regional rethink",
+                "event": "aimed to identify",
+                "object": "blind orebodies with tonnages and grades exceeding near-surface resources",
+                "sTime": "2019",
+                "eTime": "2020"
+            },
+            "15": {
+                "subject": "Historical exploration",
+                "event": "successfully identified",
+                "object": "near-surface gold deposits during 1890-1910 and 1985-2005",
+                "sTime": "1890",
+                "eTime": "2005"
+            },
+            "16": {
+                "subject": "The discovery rate for gold in the Yilgarn",
+                "event": "has",
+                "object": "slowed significantly",
+                "sTime": "2005",
+                "eTime": "nan"
+            },
+            "17": {
+                "subject": "Exploration for blind orebodies",
+                "event": "relies on",
+                "object": "geophysical expressions, geochemical expressions, or conceptual geological approaches",
+                "sTime": "2019",
+                "eTime": "2020"
+            }
+        }
+    }
+]

@@ -1,0 +1,7 @@
+eventA, temporal_relation, eventB
+0,BEFORE,1
+0,BEFORE,2
+0,BEFORE,3
+1,BEFORE,2
+1,AFTER,3
+2,AFTER,3
